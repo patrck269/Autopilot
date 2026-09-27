@@ -385,6 +385,7 @@ function M.tick(state, input)
         ship.dt,
         equilibrium
       ))
+      state.hover_rpm = hover.limit_elevation_rpm(state.hover_rpm, ship.vy, equilibrium, ship.dt)
     elseif vertical == "climb" or vertical == "hold" or vertical == "descend" then
       local equilibrium = state.elevation_equilibrium
       if equilibrium == nil or equilibrium <= 0 then

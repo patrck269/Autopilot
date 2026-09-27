@@ -133,6 +133,14 @@ function M.climb_limit()
   return math.sqrt(2 * CLIMB_GRAVITY * budget)
 end
 
+-- A fall can be braked by thrust above hover, up to the one-step stop that still
+-- fits in a meter. That distance is v * step / 2, so the rate sits above the climb cap.
+function M.descent_limit()
+  local excess = (CLIMB_STEP * CLIMB_STEP * CLIMB_GRAVITY) / 8
+  local budget = 1 - excess - 0.02
+  return 2 * budget / CLIMB_STEP
+end
+
 function M.desired_vertical(altitude, target_altitude, deadzone, approach)
   local gap = target_altitude - altitude
   local distance = math.abs(gap)
@@ -149,19 +157,20 @@ function M.desired_vertical(altitude, target_altitude, deadzone, approach)
   else
     rate = sign * ((distance - approach) / 15)
   end
-  local limit = M.climb_limit()
-  if rate > limit then
-    return limit
+  local climb = M.climb_limit()
+  if rate > climb then
+    return climb
   end
-  if rate < -limit then
-    return -limit
+  local descent = M.descent_limit()
+  if rate < -descent then
+    return -descent
   end
   return rate
 end
 
 function M.limit_elevation_rpm(rpm, vertical_speed, equilibrium, dt)
-  if rpm == nil or rpm <= 0 then
-    return 0
+  if rpm == nil then
+    rpm = 0
   end
   if equilibrium == nil or equilibrium <= 0 then
     equilibrium = 430
@@ -180,6 +189,18 @@ function M.limit_elevation_rpm(rpm, vertical_speed, equilibrium, dt)
   local max_rpm = equilibrium * (powered ^ (1 / 1.2))
   if rpm > max_rpm then
     rpm = max_rpm
+  end
+  local min_accel = (-M.descent_limit() - vertical_speed) / dt
+  local min_powered = 1 + min_accel / CLIMB_GRAVITY
+  if min_powered < 0 then
+    min_powered = 0
+  end
+  local min_rpm = equilibrium * (min_powered ^ (1 / 1.2))
+  if rpm < min_rpm then
+    rpm = min_rpm
+  end
+  if rpm < 0 then
+    rpm = 0
   end
   return config.clamp_rpm(rpm)
 end

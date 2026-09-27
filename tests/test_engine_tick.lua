@@ -208,22 +208,30 @@ ship.y = 450
 ship.vy = 0
 ship.vx = 0
 ship.vz = 0
+ship.x = 0
+ship.z = 0
+ship.pitch = 0
+ship.roll = 0
+ship.heading = 0
 ship.pitch_rate = 0
 ship.roll_rate = 0
+ship.dt = 0.05
 state = engine_tick.new_state()
 state.mode = "manual"
+state.phase = "track"
 state.waypoint_x = 800
 state.waypoint_z = 900
+state.bearing = 1.2
 state.hover_rpm = 430
 local descent_floor = ship.y
 local descent_rpm = 430
 local reverser_on = false
 local inside = false
-for _ = 1, 400 do
+local function descend_step(command)
   local stepped
   state, stepped = engine_tick.tick(state, {
     ship = ship,
-    command = { type = "set_altitude", y = 400 },
+    command = command,
     su = 1,
     ready = true,
     stick_fresh = false,
@@ -245,9 +253,20 @@ for _ = 1, 400 do
   if ship.y <= 408 and ship.y >= 392 then
     inside = true
   end
+  return stepped
+end
+descend_step({ type = "set_altitude", y = 400 })
+A.eq(state.mode, "manual", "altitude from above does not change mode")
+A.eq(state.job, "altitude", "altitude from above replaces the waypoint")
+A.eq(state.altitude, 400, "altitude from above is the new target")
+A.eq(state.waypoint_x, nil, "altitude from above clears the waypoint")
+A.eq(state.waypoint_z, nil, "altitude from above clears the waypoint z")
+for _ = 1, 399 do
+  descend_step(nil)
 end
 A.eq(state.mode, "manual", "released stick keeps the altitude mode")
 A.eq(state.job, "altitude", "released stick keeps the altitude job")
+A.eq(state.brake_elev, nil, "released stick does not latch the elevation brake")
 A.eq(reverser_on, false, "altitude descent keeps the reverser off")
 if descent_rpm >= 430 then
   error("altitude descent did not lower elevation rpm, got " .. tostring(descent_rpm))
