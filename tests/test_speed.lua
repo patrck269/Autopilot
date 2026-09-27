@@ -1,0 +1,15 @@
+package.path = "src/?.lua;" .. package.path
+local A = dofile("tests/assert.lua")
+local speed = require("speed")
+
+A.near(speed.ramp_rate(0, 30), 2, 1e-9, "rate")
+A.near(speed.apply_ramp(0, 30, 2, 0.5), 1, 1e-9, "half second")
+A.eq(speed.apply_ramp(29, 30, 2, 5), 30, "does not pass target")
+A.eq(speed.apply_ramp(10, 0, -2, 1), 8, "slowing")
+A.eq(speed.cap(40, 35), 35, "upper cap")
+A.eq(speed.cap(-40, 35), -35, "lower cap")
+A.eq(speed.brake_distance(10, 2), 25, "brake")
+A.eq(speed.brake_distance(10, 0), 0, "no accel")
+A.eq(speed.relay2_level(0, 35), 0, "relay idle")
+A.eq(speed.relay2_level(35, 35), 15, "relay full")
+A.eq(speed.relay2_level(-17.5, 35), 8, "relay half and reverse magnitude")

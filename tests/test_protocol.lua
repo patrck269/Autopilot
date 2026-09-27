@@ -1,0 +1,22 @@
+package.path = "src/?.lua;" .. package.path
+local A = dofile("tests/assert.lua")
+local protocol = require("protocol")
+
+A.eq(protocol.validate(nil), nil, "nil")
+A.eq(protocol.validate({ type = "nope" }), nil, "unknown")
+A.eq(protocol.validate({ type = "stick", x = 1 }), nil, "short stick")
+
+local stick = protocol.validate({ type = "stick", x = 1, y = 0, z = -1 })
+A.eq(stick.x, 1, "stick x")
+A.eq(protocol.validate({ type = "set_mode", mode = "auto" }).mode, "auto", "mode")
+A.eq(protocol.validate({ type = "set_mode", mode = "hover" }), nil, "bad mode")
+A.eq(protocol.validate({ type = "set_waypoint", x = 3, z = 4 }).z, 4, "waypoint")
+A.eq(protocol.validate({ type = "set_profile", profile = "cruise" }).profile, "cruise", "profile")
+A.eq(protocol.validate({ type = "return_to_user", x = 8, z = 9 }).x, 8, "return")
+A.eq(protocol.validate({ type = "emergency" }).type, "emergency", "estop")
+A.eq(protocol.validate({ type = "clear_emergency" }).type, "clear_emergency", "clear")
+A.eq(protocol.validate({ type = "diagnostic_enter", hover = true }).hover, true, "diag enter")
+A.eq(protocol.validate({ type = "diagnostic_set", device = "rsc10", rpm = 40 }).rpm, 40, "diag rpm")
+A.eq(protocol.validate({ type = "diagnostic_set", device = "relay7", side = "bottom", level = 15 }).side, "bottom", "diag relay")
+A.eq(protocol.validate({ type = "diagnostic_set", device = "relay7" }), nil, "diag relay missing side")
+A.eq(protocol.validate({ type = "diagnostic_elevation", rpm = 80 }).rpm, 80, "elevation")
