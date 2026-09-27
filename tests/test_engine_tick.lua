@@ -247,6 +247,40 @@ if math.abs(outputs.rsc.rsc10) > cfg.max_rpm or math.abs(outputs.rsc.rsc7) > cfg
   error("cancel brake exceeded the server rpm cap")
 end
 
+ship.vx = 0
+ship.vz = 0
+ship.vy = 4
+ship.y = 180
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "track"
+state.hover_rpm = 430
+state.waypoint_x = 500
+state.waypoint_z = 500
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "cancel_jobs" },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(state.job, "hover", "climb cancel hovers")
+A.eq(outputs.relays.relay6, false, "climb cancel keeps the reverser off")
+A.eq(outputs.rsc.rsc11, jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, 430), "climb cancel uses the elevation brake")
+local climb_net = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+if climb_net >= 0 then
+  error("cancel left the climb powered, net " .. tostring(climb_net))
+end
+local climb_distance = (ship.vy * ship.vy) / (2 * -climb_net)
+if climb_distance > 1 then
+  error("cancel climb stops in " .. tostring(climb_distance) .. " m at rpm " .. tostring(outputs.rsc.rsc11))
+end
+if math.abs(outputs.rsc.rsc11) > cfg.max_rpm then
+  error("climb brake exceeded the server rpm cap")
+end
+
 ship.vx = 4
 ship.vz = 0.35
 ship.vy = 1

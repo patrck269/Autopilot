@@ -329,7 +329,9 @@ function M.tick(state, input)
       target_y = 400
     end
   end
-  if state.mode ~= "manual" or state.job == "hover" or state.job == "altitude" then
+  if state.job == "hover" then
+    state.hover_rpm = jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, state.hover_rpm)
+  elseif state.mode ~= "manual" or state.job == "altitude" then
     if ship.y > target_y + cfg.altitude_deadzone then
       local equilibrium = state.elevation_equilibrium
       if equilibrium == nil or equilibrium <= 0 then
