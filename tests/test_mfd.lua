@@ -16,5 +16,7 @@ A.eq(labels[5], "Systems", "systems label")
 
 A.eq(mfd.hit(39, 20, 1, 19), "Flight", "touch flight tab")
 A.eq(mfd.hit(39, 20, 14, 19), "Navigation", "touch navigation tab")
+A.eq(mfd.hit(39, 20, 27, 19), "Engines", "touch engines tab")
 A.eq(mfd.hit(39, 20, 1, 20), "Emergency", "touch emergency tab")
+A.eq(mfd.hit(39, 20, 20, 20), "Systems", "touch systems tab")
 A.eq(mfd.hit(39, 20, 20, 10), nil, "touch off the tabs")

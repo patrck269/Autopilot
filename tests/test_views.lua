@@ -15,7 +15,7 @@ A.near(nav.eta, 10, 1e-6, "eta")
 A.near(nav.drift, 10, 1e-6, "drift off the track")
 A.eq(nav.altitude, 100, "altitude")
 A.eq(nav.bearing, 1.2, "bearing")
-A.eq(type(nav.compass), "string", "compass row")
+A.eq(string.find(nav.compass, "|", 1, true) ~= nil, true, "compass mark")
 
 local outputs = {
   rsc = {
@@ -51,6 +51,8 @@ end
 A.eq(by_type["X propellers"].devices[1].rpm, 30, "x rpm")
 A.eq(by_type["Elevation propellers"].devices[1].rpm, 20, "elevation rpm")
 A.eq(by_type["Upward thrusters"].devices[1].name, "RSC 2", "up group")
+A.eq(by_type["Upward thrusters"].devices[2].rpm, 10, "up rpm")
+A.eq(by_type["Side thrusters"].devices[1].rpm, 0, "side rpm")
 A.eq(by_type["Main shaft"].devices[1].rpm, 256, "shaft rpm")
 
 local diagram = views.emergency(outputs)
