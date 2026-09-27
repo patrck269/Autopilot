@@ -82,15 +82,26 @@ function M.key(state, name, down)
     state.buffer = ""
     return state, nil
   end
-  if state.field ~= nil and (name == "-" or name == "." or (name >= "0" and name <= "9")) then
-    state.buffer = state.buffer .. name
+  local typed = ({
+    one = "1", two = "2", three = "3", four = "4", five = "5",
+    six = "6", seven = "7", eight = "8", nine = "9", zero = "0",
+    numPad1 = "1", numPad2 = "2", numPad3 = "3", numPad4 = "4", numPad5 = "5",
+    numPad6 = "6", numPad7 = "7", numPad8 = "8", numPad9 = "9", numPad0 = "0",
+    minus = "-", numPadSubtract = "-",
+    period = ".", numPadDecimal = ".",
+  })[name]
+  if typed == nil and (name == "-" or name == "." or (type(name) == "string" and #name == 1 and name >= "0" and name <= "9")) then
+    typed = name
+  end
+  if state.field ~= nil and typed ~= nil then
+    state.buffer = state.buffer .. typed
     return state, nil
   end
   if name == "backspace" and state.field ~= nil then
     state.buffer = string.sub(state.buffer, 1, #state.buffer - 1)
     return state, nil
   end
-  if name == "enter" and state.field ~= nil then
+  if (name == "enter" or name == "numPadEnter") and state.field ~= nil then
     local number = tonumber(state.buffer)
     local field = state.field
     state.field = nil

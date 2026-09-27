@@ -99,10 +99,24 @@ local function draw(state, status)
 
   fill(1, 10, leftW, 6, colors.lightGray)
   text(2, 10, "ENTER A NUMBER", colors.black, colors.lightGray, leftText)
-  text(2, 11, "Y  Altitude", colors.black, colors.lightGray, leftText)
-  text(2, 12, "B  Bearing", colors.black, colors.lightGray, leftText)
-  text(2, 13, "V  Speed", colors.black, colors.lightGray, leftText)
-  text(2, 14, "X / Z  Waypoint, then Enter", colors.black, colors.lightGray, leftText)
+  local function entry(row, label, fieldName)
+    local active = state.field == fieldName
+    local bg = colors.lightGray
+    local fg = colors.black
+    local value = label
+    if active then
+      bg = colors.white
+      fg = colors.black
+      value = label .. " " .. state.buffer .. "_"
+    end
+    fill(2, row, leftText, 1, bg)
+    text(2, row, value, fg, bg, leftText)
+  end
+  entry(11, "Y Altitude", "y")
+  entry(12, "B Bearing", "bearing")
+  entry(13, "V Speed", "speed")
+  entry(14, "X Waypoint", "x")
+  entry(15, "Z Waypoint", "z")
 
   fill(rightX, 10, rightW, 6, colors.red)
   text(rightX + 1, 10, "SAFETY", colors.white, colors.red, rightText)
