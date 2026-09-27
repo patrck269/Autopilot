@@ -98,7 +98,7 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
       sign = -1
     end
     if sign ~= captured.sign then
-      return rest_rpm, nil
+      return finish_rpm(speed, vertical), nil
     end
     if math.abs(speed) <= captured.accel * STEP * (1 + 1e-4) then
       return finish_rpm(speed, vertical), nil

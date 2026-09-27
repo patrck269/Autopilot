@@ -213,8 +213,14 @@ local cleared_rpm, cleared = jobs.hold_stop(capture_again, 0.01, cfg.ship_mass, 
 A.eq(cleared_rpm, 0, "finished horizontal brake is zero")
 A.eq(cleared, nil, "finished horizontal brake drops the capture")
 local flipped_rpm, flipped = jobs.hold_stop(capture, -1, cfg.ship_mass, 0, false)
-A.eq(flipped_rpm, 0, "a speed reversal drops the horizontal brake")
-A.eq(flipped, nil, "a speed reversal clears the capture")
+if flipped_rpm == 0 then
+  error("a reversal must not coast at rest rpm while speed remains")
+end
+A.eq(flipped, nil, "a speed reversal clears the old capture")
+local reverse_accel = jobs.thrust(flipped_rpm, cfg.ship_mass) / cfg.ship_mass
+if math.abs(1 - reverse_accel * 0.05) > 1e-6 then
+  error("a reversal must be gone after one step, leftover " .. tostring(1 - reverse_accel * 0.05))
+end
 local elev_latched, elev_capture = jobs.hold_stop(nil, 4, cfg.ship_mass, 430, true)
 local elev_again = jobs.hold_stop(elev_capture, 2, cfg.ship_mass, 430, true)
 A.eq(elev_again, elev_latched, "held climb brake ignores the smaller climb")
