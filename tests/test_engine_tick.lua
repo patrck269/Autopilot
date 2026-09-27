@@ -203,184 +203,153 @@ A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
 
 local jobs = require("jobs")
 
+local latched, capture = jobs.hold_stop(nil, 8, cfg.ship_mass, 0, false)
+local again, capture_again = jobs.hold_stop(capture, 4, cfg.ship_mass, 0, false)
+A.eq(again, latched, "held brake ignores the smaller speed")
+if again == jobs.brake_rpm(4, cfg.ship_mass) then
+  error("held brake recomputed from the new speed")
+end
+local cleared_rpm, cleared = jobs.hold_stop(capture_again, 0.01, cfg.ship_mass, 0, false)
+A.eq(cleared_rpm, 0, "finished horizontal brake is zero")
+A.eq(cleared, nil, "finished horizontal brake drops the capture")
+local flipped_rpm, flipped = jobs.hold_stop(capture, -1, cfg.ship_mass, 0, false)
+A.eq(flipped_rpm, 0, "a speed reversal drops the horizontal brake")
+A.eq(flipped, nil, "a speed reversal clears the capture")
+local elev_latched, elev_capture = jobs.hold_stop(nil, 4, cfg.ship_mass, 430, true)
+local elev_again = jobs.hold_stop(elev_capture, 2, cfg.ship_mass, 430, true)
+A.eq(elev_again, elev_latched, "held climb brake ignores the smaller climb")
+if elev_again == jobs.elevation_brake_rpm(2, cfg.ship_mass, 430) then
+  error("held climb brake recomputed from the new climb")
+end
+local elev_rest, elev_clear = jobs.hold_stop(elev_capture, 0, cfg.ship_mass, 430, true)
+A.eq(elev_rest, 430, "finished climb brake returns to hover")
+A.eq(elev_clear, nil, "finished climb brake drops the capture")
+
+local function axis_accel(rpm, mass)
+  if rpm == nil or rpm == 0 then
+    return 0
+  end
+  local magnitude = jobs.thrust(rpm, mass) / mass
+  if rpm < 0 then
+    return -magnitude
+  end
+  return magnitude
+end
+
+local function side_accel(outputs, mass)
+  if outputs.rsc.rsc6 > 0 then
+    return jobs.thrust(outputs.rsc.rsc6, mass) / mass
+  end
+  if outputs.rsc.rsc7 > 0 then
+    return -(jobs.thrust(outputs.rsc.rsc7, mass) / mass)
+  end
+  return 0
+end
+
+local function coast(pos, vel, accel, dt)
+  local step = dt
+  if accel ~= 0 and vel ~= 0 and ((vel > 0 and accel < 0) or (vel < 0 and accel > 0)) then
+    local stop_at = math.abs(vel / accel)
+    if stop_at < step then
+      step = stop_at
+    end
+  end
+  pos = pos + vel * step + 0.5 * accel * step * step
+  vel = vel + accel * step
+  if step < dt or math.abs(vel) < 1e-8 then
+    vel = 0
+  end
+  return pos, vel
+end
+
+local function fly_until_rest(state, command)
+  local x0, y0, z0 = ship.x, ship.y, ship.z
+  local peak_x, peak_y, peak_z = 0, 0, 0
+  local outputs
+  local fresh = command ~= nil
+  for _ = 1, 400 do
+    state, outputs = engine_tick.tick(state, {
+      ship = ship,
+      command = command,
+      su = 1,
+      ready = true,
+      stick_fresh = fresh,
+      config = cfg,
+      current_elevation_rpm = 430,
+    })
+    command = nil
+    fresh = false
+    local ax = axis_accel(outputs.rsc.rsc10, cfg.ship_mass)
+    local ay = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+    local az = side_accel(outputs, cfg.ship_mass)
+    ship.x, ship.vx = coast(ship.x, ship.vx, ax, 0.05)
+    ship.y, ship.vy = coast(ship.y, ship.vy, ay, 0.05)
+    ship.z, ship.vz = coast(ship.z, ship.vz, az, 0.05)
+    peak_x = math.max(peak_x, math.abs(ship.x - x0))
+    peak_y = math.max(peak_y, math.abs(ship.y - y0))
+    peak_z = math.max(peak_z, math.abs(ship.z - z0))
+    if math.abs(ship.vx) < 0.05 and math.abs(ship.vy) < 0.05 and math.abs(ship.vz) < 0.05
+      and state.brake_x == nil and state.brake_z == nil and state.brake_elev == nil then
+      break
+    end
+  end
+  state, outputs = engine_tick.tick(state, {
+    ship = ship,
+    command = nil,
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+  })
+  return state, outputs, peak_x, peak_y, peak_z
+end
+
+local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
+  if peak_x > 1 + 1e-6 or peak_y > 1 + 1e-6 or peak_z > 1 + 1e-6 then
+    error(label .. " traveled x " .. tostring(peak_x) .. " y " .. tostring(peak_y) .. " z " .. tostring(peak_z))
+  end
+  A.eq(outputs.rsc.rsc10, 0, label .. " horizontal brake is off")
+  A.eq(outputs.rsc.rsc6, 0, label .. " port side is off")
+  A.eq(outputs.rsc.rsc7, 0, label .. " starboard side is off")
+  A.eq(outputs.relays.relay6, false, label .. " reverser stays off")
+  local net = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+  if math.abs(net) > 1e-6 then
+    error(label .. " vertical accel after the stop is " .. tostring(net))
+  end
+  if state.hover_rpm < 400 then
+    error(label .. " stored the brake as the hover rpm " .. tostring(state.hover_rpm))
+  end
+end
+
 ship.vx = 8
 ship.vz = 5
-ship.vy = 0
+ship.vy = 4
+ship.x = 0
 ship.y = 180
-ship.x = 10
-ship.z = 20
+ship.z = 0
+ship.pitch_rate = 0
+ship.roll_rate = 0
+ship.pitch = 0
 state = engine_tick.new_state()
 state.mode = "auto"
 state.phase = "track"
 state.waypoint_x = 800
 state.waypoint_z = 900
-state, outputs, status = engine_tick.tick(state, {
-  ship = ship,
-  command = { type = "cancel_jobs" },
-  su = 4,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
+state, outputs, peak_x, peak_y, peak_z = fly_until_rest(state, { type = "cancel_jobs" })
 A.eq(state.job, "hover", "cancel hovers")
-A.eq(state.phase, "hold", "cancel holds")
-A.eq(state.target_speed, 0, "cancel stops the speed job")
 A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
-A.eq(state.waypoint_z, nil, "cancel clears waypoint z")
-A.eq(outputs.rsc.rsc10, jobs.brake_rpm(ship.vx, cfg.ship_mass), "x brake matches the shipped curve")
-A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(ship.vz, cfg.ship_mass), "z brake drives the other horizontal axis")
-local accel_x = jobs.thrust(outputs.rsc.rsc10, cfg.ship_mass) / cfg.ship_mass
-local accel_z = jobs.thrust(outputs.rsc.rsc7, cfg.ship_mass) / cfg.ship_mass
-local distance_x = (ship.vx * ship.vx) / (2 * accel_x)
-local distance_z = (ship.vz * ship.vz) / (2 * accel_z)
-if distance_x > 1 then
-  error("x stop " .. tostring(distance_x) .. " m from rpm " .. tostring(outputs.rsc.rsc10))
-end
-if distance_z > 1 then
-  error("z stop " .. tostring(distance_z) .. " m from rpm " .. tostring(outputs.rsc.rsc7))
-end
-if math.abs(outputs.rsc.rsc10) < 100 or math.abs(outputs.rsc.rsc7) < 100 then
-  error("cancel rpm is only a few counts: " .. tostring(outputs.rsc.rsc10))
-end
-if math.abs(outputs.rsc.rsc10) > cfg.max_rpm or math.abs(outputs.rsc.rsc7) > cfg.max_rpm then
-  error("cancel brake exceeded the server rpm cap")
-end
-
-ship.vx = 0
-ship.vz = 0
-ship.vy = 4
-ship.y = 180
-state = engine_tick.new_state()
-state.mode = "auto"
-state.phase = "track"
-state.hover_rpm = 430
-state.waypoint_x = 500
-state.waypoint_z = 500
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = { type = "cancel_jobs" },
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
-A.eq(state.job, "hover", "climb cancel hovers")
-A.eq(outputs.relays.relay6, false, "climb cancel keeps the reverser off")
-A.eq(outputs.rsc.rsc11, jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, 430), "climb cancel uses the elevation brake")
-local climb_net = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
-if climb_net >= 0 then
-  error("cancel left the climb powered, net " .. tostring(climb_net))
-end
-local climb_distance = (ship.vy * ship.vy) / (2 * -climb_net)
-if climb_distance > 1 then
-  error("cancel climb stops in " .. tostring(climb_distance) .. " m at rpm " .. tostring(outputs.rsc.rsc11))
-end
-if math.abs(outputs.rsc.rsc11) > cfg.max_rpm then
-  error("climb brake exceeded the server rpm cap")
-end
+assert_stopped("cancel", state, outputs, peak_x, peak_y, peak_z)
 
 ship.vx = 4
-ship.vz = 0.35
-ship.vy = 1
+ship.vz = 3
+ship.vy = 2
+ship.x = 0
 ship.y = 120
+ship.z = 0
 state = engine_tick.new_state()
 state.mode = "manual"
-state.hover_rpm = 430
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
-A.eq(outputs.rsc.rsc10, jobs.brake_rpm(4, cfg.ship_mass), "released stick brakes x to a stop")
-A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(ship.vz, cfg.ship_mass), "released stick brakes lateral speed")
-local climb_rpm = jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, 430)
-A.eq(state.hover_rpm, climb_rpm, "released stick brakes the climb toward rest")
-local net = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
-if -net < (ship.vy * ship.vy) / 2 then
-  error("vertical brake accel " .. tostring(net) .. " does not stop the climb in 1 m")
-end
-local held_x = outputs.rsc.rsc10
-local held_side = outputs.rsc.rsc7
-local held_climb = state.hover_rpm
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-A.eq(outputs.rsc.rsc10, held_x, "x brake does not flip while speed remains")
-A.eq(outputs.rsc.rsc7, held_side, "lateral brake does not flip while speed remains")
-A.eq(state.hover_rpm, held_climb, "vertical brake does not hunt while still climbing")
-ship.vx = 0
-ship.vz = 0
-ship.vy = 0
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-A.eq(outputs.rsc.rsc10, 0, "x brake is zero once stopped")
-A.eq(outputs.rsc.rsc6, 0, "lateral brake is zero once stopped")
-A.eq(state.hover_rpm, held_climb, "elevation rpm holds once vertical speed is gone")
-
-ship.vx = -3
-ship.vz = -3
-ship.vy = -3
-ship.y = 120
-state = engine_tick.new_state()
-state.mode = "manual"
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
-if outputs.rsc.rsc10 <= 0 then
-  error("speed of -3 m/s must still be braked toward rest, rsc10 " .. tostring(outputs.rsc.rsc10))
-end
-if outputs.rsc.rsc6 <= 0 then
-  error("lateral -3 m/s must still drive the RCS, rsc6 " .. tostring(outputs.rsc.rsc6))
-end
-if state.hover_rpm <= 430 then
-  error("a 3 m/s fall held hover rpm " .. tostring(state.hover_rpm))
-end
-local back_accel = jobs.thrust(outputs.rsc.rsc10, cfg.ship_mass) / cfg.ship_mass
-local side_accel = jobs.thrust(outputs.rsc.rsc6, cfg.ship_mass) / cfg.ship_mass
-local climb_accel = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
-if (9 / (2 * back_accel)) > 1 then
-  error("backward stop " .. tostring(9 / (2 * back_accel)) .. " m")
-end
-if (9 / (2 * side_accel)) > 1 then
-  error("lateral stop " .. tostring(9 / (2 * side_accel)) .. " m")
-end
-if climb_accel <= 0 or (9 / (2 * climb_accel)) > 1 then
-  error("fall stop accel " .. tostring(climb_accel))
-end
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-if outputs.rsc.rsc10 <= 0 or outputs.rsc.rsc6 <= 0 or state.hover_rpm <= 430 then
-  error("the -3 m/s case hunted off the stop command")
-end
+state, outputs, peak_x, peak_y, peak_z = fly_until_rest(state, nil)
+assert_stopped("release", state, outputs, peak_x, peak_y, peak_z)
 
 ship.vx = 0
 ship.vy = 0

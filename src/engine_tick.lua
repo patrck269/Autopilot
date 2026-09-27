@@ -42,6 +42,9 @@ function M.new_state()
     cancel = false,
     rpm_memory = {},
     elevation_equilibrium = nil,
+    brake_x = nil,
+    brake_z = nil,
+    brake_elev = nil,
     stop_distance = 0,
     measured_accel = nil,
     last_horiz = 0,
@@ -264,27 +267,17 @@ function M.tick(state, input)
 
   local manual_fly = state.mode == "manual" and (state.stick.x ~= 0 or state.stick.y ~= 0 or state.stick.z ~= 0)
   if state.job == "hover" then
-    local brake_x = jobs.brake_rpm(ship.vx, cfg.ship_mass)
-    local brake_z = jobs.brake_rpm(ship.vz, cfg.ship_mass)
-    local distance_x = jobs.stopping_distance(ship.vx, brake_x, cfg.ship_mass)
-    local distance_z = jobs.stopping_distance(ship.vz, brake_z, cfg.ship_mass)
-    state.stop_distance = distance_x
-    if distance_z > distance_x then
-      state.stop_distance = distance_z
-    end
     vertical = "hold"
   elseif state.job == "altitude" then
     vertical = "hold"
   elseif manual_fly or state.mode == "manual" then
     vx, vy, vz = manual.velocity(state.stick.x, state.stick.y, state.stick.z)
-    if state.stick.x == 0 then
-      state.x_rpm = jobs.brake_rpm(ship.vx, cfg.ship_mass)
-    else
+    if state.stick.x ~= 0 then
+      state.brake_x = nil
       state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     end
-    if state.stick.z == 0 then
-      state.hover_rpm = jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, state.hover_rpm)
-    else
+    if state.stick.z ~= 0 then
+      state.brake_elev = nil
       state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
     end
     vertical = "hold"
@@ -329,9 +322,44 @@ function M.tick(state, input)
       target_y = 400
     end
   end
-  if state.job == "hover" then
-    state.hover_rpm = jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, state.hover_rpm)
-  elseif state.mode ~= "manual" or state.job == "altitude" then
+  local function rest_elevation()
+    if state.elevation_equilibrium ~= nil and state.elevation_equilibrium > 0 then
+      return state.elevation_equilibrium
+    end
+    if state.hover_rpm > 0 then
+      return state.hover_rpm
+    end
+    if cfg.hover_equilibrium ~= nil then
+      return cfg.hover_equilibrium
+    end
+    return 430
+  end
+  local stop_x = state.job == "hover" or (state.mode == "manual" and state.stick.x == 0)
+  local stop_z = state.job == "hover" or (state.mode == "manual" and state.stick.y == 0)
+  local stop_y = state.job == "hover" or (state.mode == "manual" and state.stick.z == 0)
+  local x_hold, z_hold, y_hold = 0, 0, rest_elevation()
+  if stop_x then
+    x_hold, state.brake_x = jobs.hold_stop(state.brake_x, ship.vx, cfg.ship_mass, 0, false)
+  else
+    state.brake_x = nil
+  end
+  if stop_z then
+    z_hold, state.brake_z = jobs.hold_stop(state.brake_z, ship.vz, cfg.ship_mass, 0, false)
+  else
+    state.brake_z = nil
+  end
+  if stop_y then
+    y_hold, state.brake_elev = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
+  else
+    state.brake_elev = nil
+  end
+  if state.brake_x ~= nil then
+    local distance = jobs.stopping_distance(ship.vx, state.brake_x.rpm, cfg.ship_mass)
+    if distance > state.stop_distance and distance < math.huge then
+      state.stop_distance = distance
+    end
+  end
+  if not stop_y and (state.mode ~= "manual" or state.job == "altitude") then
     if ship.y > target_y + cfg.altitude_deadzone then
       local equilibrium = state.elevation_equilibrium
       if equilibrium == nil or equilibrium <= 0 then
@@ -363,8 +391,8 @@ function M.tick(state, input)
   end
 
   local rsc10, relay2 = mix.x(vx, ref)
-  if state.job == "hover" then
-    rsc10 = jobs.brake_rpm(ship.vx, cfg.ship_mass)
+  if stop_x then
+    rsc10 = x_hold
   elseif state.mode == "manual" then
     rsc10 = state.x_rpm
   end
@@ -372,6 +400,9 @@ function M.tick(state, input)
   outputs.rsc.rsc10 = rsc10
   outputs.relays.relay2 = relay2
   local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
+  if stop_y then
+    rsc11 = y_hold
+  end
   outputs.rsc.rsc11 = rsc11
   outputs.relays.relay6 = false
 
@@ -401,7 +432,7 @@ function M.tick(state, input)
   outputs.rsc.rsc7 = rsc7
   outputs.rsc.rsc8 = rsc8
   outputs.rsc.rsc9 = rsc9
-  if math.abs(ship.vy) < 0.05 and math.abs(ship.y - target_y) <= cfg.altitude_deadzone and state.hover_rpm > 0 then
+  if state.brake_elev == nil and math.abs(ship.vy) < 0.05 and math.abs(ship.y - target_y) <= cfg.altitude_deadzone and state.hover_rpm > 0 then
     hover.remember(state.rpm_memory, ship.y, state.hover_rpm)
     state.elevation_equilibrium = state.hover_rpm
   end
@@ -471,8 +502,8 @@ function M.tick(state, input)
       outputs.rsc.rsc5 = vert_rpm
     end
   end
-  if state.job == "hover" or (state.mode == "manual" and state.stick.y == 0) then
-    apply_side_brake(outputs, jobs.brake_rpm(ship.vz, cfg.ship_mass))
+  if stop_z then
+    apply_side_brake(outputs, z_hold)
   end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side")
 

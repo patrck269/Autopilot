@@ -60,6 +60,42 @@ function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
   return config.clamp_rpm(hover * ratio)
 end
 
+function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
+  if rest_rpm == nil then
+    rest_rpm = 0
+  end
+  if speed == nil then
+    speed = 0
+  end
+  if captured ~= nil then
+    if math.abs(speed) < 0.05 then
+      return rest_rpm, nil
+    end
+    local sign = 1
+    if speed < 0 then
+      sign = -1
+    end
+    if sign ~= captured.sign then
+      return rest_rpm, nil
+    end
+    return captured.rpm, captured
+  end
+  if math.abs(speed) < 0.05 then
+    return rest_rpm, nil
+  end
+  local rpm
+  if vertical then
+    rpm = M.elevation_brake_rpm(speed, mass, rest_rpm)
+  else
+    rpm = M.brake_rpm(speed, mass)
+  end
+  local sign = 1
+  if speed < 0 then
+    sign = -1
+  end
+  return rpm, { rpm = rpm, sign = sign }
+end
+
 function M.stopping_distance(speed, rpm, mass)
   if speed == nil or math.abs(speed) < 0.05 then
     return 0
