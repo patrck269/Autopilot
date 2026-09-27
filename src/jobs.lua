@@ -34,6 +34,32 @@ function M.brake_rpm(speed, mass)
   return rpm
 end
 
+function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
+  if mass == nil or mass <= 0 then
+    return 0
+  end
+  if vertical_speed == nil or math.abs(vertical_speed) < 0.05 then
+    if hold_rpm == nil or hold_rpm < 0 then
+      return 0
+    end
+    return config.clamp_rpm(hold_rpm)
+  end
+  local hover = config.default().hover_equilibrium
+  if hover == nil or hover <= 0 then
+    hover = 430
+  end
+  local stopping = (vertical_speed * vertical_speed) / 2
+  local thrust_accel = GRAVITY - stopping
+  if vertical_speed < 0 then
+    thrust_accel = GRAVITY + stopping
+  end
+  if thrust_accel < 0 then
+    thrust_accel = 0
+  end
+  local ratio = (thrust_accel / GRAVITY) ^ (1 / 1.2)
+  return config.clamp_rpm(hover * ratio)
+end
+
 function M.stopping_distance(speed, rpm, mass)
   if speed == nil or math.abs(speed) < 0.05 then
     return 0

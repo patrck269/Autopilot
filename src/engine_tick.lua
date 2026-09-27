@@ -282,11 +282,11 @@ function M.tick(state, input)
     else
       state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     end
-    local target_vy = 0
-    if state.stick.z ~= 0 then
-      target_vy = vz
+    if state.stick.z == 0 then
+      state.hover_rpm = jobs.elevation_brake_rpm(ship.vy, cfg.ship_mass, state.hover_rpm)
+    else
+      state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
     end
-    state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, target_vy, cfg.hover_step, true)
     vertical = "hold"
     ref = 3
   elseif state.mode == "semi" then
