@@ -25,9 +25,16 @@ if not (coasting < 500 and 500 - coasting < 1) then
 end
 
 local memory = {}
-hover.remember(memory, 100.2, 430)
-A.eq(hover.recall(memory, 100), 430, "recall the altitude just flown")
-A.eq(hover.recall(memory, 101.4), 430, "recall a nearby altitude")
+A.eq(hover.remember(memory, 100, 430, 102, 0), false, "do not remember before arrival")
+A.eq(hover.recall(memory, 100), nil, "unreached altitude has no rpm")
+A.eq(hover.remember(memory, 100, 430, 100, 1), false, "do not remember while still moving")
+A.eq(hover.remember(memory, 100, 430, 100, 0), true, "remember the rpm that arrived")
+A.eq(hover.recall(memory, 100), 430, "recall the exact set altitude")
+A.eq(hover.recall(memory, 101), nil, "one block away is a different altitude")
+A.eq(hover.recall(memory, 102), nil, "two blocks away is a different altitude")
+A.eq(hover.remember(memory, 250, 440, 250.4, 0), true, "settled on the set altitude")
+A.eq(hover.recall(memory, 250), 440, "exact 250")
+A.eq(hover.recall(memory, 250.4), nil, "the ship position is not a second key")
 
 local descent = hover.simulate_descent(450, 400, 8, 430, 0.05)
 A.eq(descent.reverser, false, "reverser stays off")

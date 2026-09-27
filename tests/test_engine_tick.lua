@@ -277,6 +277,72 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(outputs.rsc.rsc11, 430, "steady altitude inside the band holds rpm")
 A.eq(outputs.relays.relay6, false, "steady altitude keeps the reverser off")
+A.eq(state.rpm_memory[400], 430, "arrived rpm is stored for the set altitude")
+A.eq(state.rpm_memory[401], nil, "a neighbor altitude is not stored")
+
+ship.y = 406
+ship.vy = 0
+state = engine_tick.new_state()
+state.mode = "manual"
+state.job = "altitude"
+state.altitude = 400
+state.altitude_set = true
+state.hover_rpm = 420
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.rpm_memory[400], nil, "deadzone is not arrival")
+A.eq(state.rpm_memory[406], nil, "the passing altitude is not remembered")
+
+ship.y = 400
+ship.vy = 1
+state = engine_tick.new_state()
+state.mode = "manual"
+state.job = "altitude"
+state.altitude = 400
+state.altitude_set = true
+state.hover_rpm = 450
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.rpm_memory[400], nil, "moving through the altitude does not store rpm")
+
+state.rpm_memory[400] = 430
+state.hover_rpm = 100
+ship.y = 400
+ship.vy = 0
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 400 },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.hover_rpm, 430, "the exact altitude reuses its rpm")
+ship.y = 402
+ship.vy = 0
+state.hover_rpm = 100
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 402 },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.altitude, 402, "402 is its own altitude")
+A.eq(state.hover_rpm, 100, "402 does not reuse the rpm from 400")
 
 local latched, capture = jobs.hold_stop(nil, 8, cfg.ship_mass, 0, false)
 local again, capture_again = jobs.hold_stop(capture, 4, cfg.ship_mass, 0, false)

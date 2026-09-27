@@ -434,8 +434,10 @@ function M.tick(state, input)
   outputs.rsc.rsc8 = rsc8
   outputs.rsc.rsc9 = rsc9
   if state.brake_elev == nil and math.abs(ship.vy) < 0.05 and math.abs(ship.y - target_y) <= cfg.altitude_deadzone and state.hover_rpm > 0 then
-    hover.remember(state.rpm_memory, ship.y, state.hover_rpm)
     state.elevation_equilibrium = state.hover_rpm
+  end
+  if state.job == "altitude" and state.brake_elev == nil then
+    hover.remember(state.rpm_memory, state.altitude, state.hover_rpm, ship.y, ship.vy)
   end
 
   local kind, which = outage.classify(ship.pitch_rate, ship.roll_rate, cfg.outage_threshold)

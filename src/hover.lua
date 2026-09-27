@@ -6,25 +6,30 @@ function M.use_reverser(failed_prop)
   return failed_prop == true
 end
 
-function M.remember(memory, altitude, rpm)
-  memory[math.floor(altitude + 0.5)] = rpm
+local ARRIVED = 0.5
+
+function M.remember(memory, set_altitude, rpm, ship_altitude, vertical_speed)
+  if type(memory) ~= "table" or set_altitude == nil or rpm == nil or rpm <= 0 then
+    return false
+  end
+  if ship_altitude == nil or vertical_speed == nil then
+    return false
+  end
+  if math.abs(vertical_speed) >= 0.05 then
+    return false
+  end
+  if math.abs(ship_altitude - set_altitude) > ARRIVED then
+    return false
+  end
+  memory[set_altitude] = rpm
+  return true
 end
 
 function M.recall(memory, altitude)
-  local key = math.floor(altitude + 0.5)
-  if memory[key] ~= nil then
-    return memory[key]
+  if type(memory) ~= "table" or altitude == nil then
+    return nil
   end
-  local best = nil
-  local best_dist = nil
-  for stored, rpm in pairs(memory) do
-    local dist = math.abs(stored - key)
-    if dist <= 2 and (best_dist == nil or dist < best_dist) then
-      best = rpm
-      best_dist = dist
-    end
-  end
-  return best
+  return memory[altitude]
 end
 
 local function rpm_for_accel(acceleration, equilibrium)
