@@ -125,12 +125,12 @@ end
 local CLIMB_STEP = 0.05
 local CLIMB_GRAVITY = 10
 
--- With the reverser off, a climb brakes at one g. The extra distance of a full
--- control step that zeroes the last fraction of that speed is (step^2 * g) / 8.
+-- The reverser adds downward thrust on top of gravity. A full step that zeroes
+-- the climb travels v * step / 2, so the commanded rate stays inside a meter.
 function M.climb_limit()
   local excess = (CLIMB_STEP * CLIMB_STEP * CLIMB_GRAVITY) / 8
   local budget = 1 - excess - 0.02
-  return math.sqrt(2 * CLIMB_GRAVITY * budget)
+  return 2 * budget / CLIMB_STEP
 end
 
 -- A fall can be braked by thrust above hover, up to the one-step stop that still

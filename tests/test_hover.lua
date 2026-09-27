@@ -7,15 +7,12 @@ A.eq(hover.adjust(100, 1, 2), 98, "rising")
 A.eq(hover.adjust(100, -1, 2), 102, "sinking")
 
 local shell = hover.desired_vertical(100, 400, 8, 20)
-A.near(shell, hover.climb_limit(), 1e-9, "a far climb uses the stoppable rate")
-A.near(hover.desired_vertical(0, 5000, 8, 20), shell, 1e-9, "a farther climb stays on that rate")
+A.near(shell, 280 / 15, 1e-9, "a far climb reaches the 20-block shell in 15 seconds")
+A.near(hover.desired_vertical(0, 100000, 8, 20), hover.climb_limit(), 1e-9, "an extreme climb stays stoppable with the reverser")
 A.near(hover.desired_vertical(400, 100, 8, 20), -(280 / 15), 1e-9, "a far descent still reaches the shell in 15 seconds")
 A.near(hover.desired_vertical(10000, 0, 8, 20), -hover.descent_limit(), 1e-9, "an extreme descent stays stoppable")
-if hover.descent_limit() <= shell then
-  error("descent limit collapsed into the climb limit")
-end
-if shell <= 7 / 60 or shell >= 280 / 15 then
-  error("shell rate is outside the stoppable climb, got " .. tostring(shell))
+if hover.climb_limit() <= 280 / 15 then
+  error("climb stop is still limited to one g")
 end
 A.near(hover.desired_vertical(385, 400, 8, 20), 7 / 60, 1e-9, "slow remainder inside 20 blocks")
 A.eq(hover.desired_vertical(396, 400, 8, 20), 0, "deadzone holds")

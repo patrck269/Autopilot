@@ -50,23 +50,52 @@ end
 
 function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
   if mass == nil or mass <= 0 then
-    return 0
+    return 0, false
   end
   if vertical_speed == nil or math.abs(vertical_speed) < 0.05 then
     if hold_rpm == nil or hold_rpm < 0 then
-      return 0
+      return 0, false
     end
-    return config.clamp_rpm(hold_rpm)
+    return config.clamp_rpm(hold_rpm), false
   end
   local stopping = stop_accel(vertical_speed)
-  local thrust_accel = GRAVITY - stopping
-  if vertical_speed < 0 then
-    thrust_accel = GRAVITY + stopping
+  if vertical_speed > 0 then
+    -- Gravity already pulls the climb down at 1 g. The reverser is only the
+    -- extra deceleration past that, so the props are not asked to replace gravity.
+    if stopping > GRAVITY then
+      return rpm_for_thrust(stopping - GRAVITY), true
+    end
+    return rpm_for_thrust(GRAVITY - stopping), false
   end
-  return rpm_for_thrust(thrust_accel)
+  return rpm_for_thrust(GRAVITY + stopping), false
 end
 
-local function braking_rate(rpm, mass, speed, vertical)
+function M.arrest_climb(vertical_speed, distance)
+  if vertical_speed == nil or vertical_speed <= 0.05 then
+    return nil, false
+  end
+  if distance == nil or distance <= 0 then
+    return nil, false
+  end
+  local gravity_room = (vertical_speed * vertical_speed) / (2 * GRAVITY)
+  if gravity_room + 2 < distance then
+    return nil, false
+  end
+  if GRAVITY * STEP >= vertical_speed then
+    return nil, false
+  end
+  local needed = (vertical_speed * vertical_speed) / (2 * distance)
+  local stopping = stop_accel(vertical_speed)
+  if needed > stopping then
+    needed = stopping
+  end
+  if needed <= GRAVITY then
+    return 0, false
+  end
+  return rpm_for_thrust(needed - GRAVITY), true
+end
+
+local function braking_rate(rpm, mass, speed, vertical, reverser)
   if mass == nil or mass <= 0 or rpm == nil or speed == nil then
     return 0
   end
@@ -74,7 +103,11 @@ local function braking_rate(rpm, mass, speed, vertical)
   local rate
   if vertical then
     if speed > 0 then
-      rate = GRAVITY - specific
+      if reverser then
+        rate = GRAVITY + specific
+      else
+        rate = GRAVITY - specific
+      end
     else
       rate = specific - GRAVITY
     end
@@ -91,18 +124,20 @@ end
 
 local function finish_rpm(speed, vertical)
   local finish = math.abs(speed) / STEP
-  if vertical then
-    local thrust_accel = GRAVITY - finish
-    if speed < 0 then
-      thrust_accel = GRAVITY + finish
+  if not vertical then
+    local rpm = rpm_for_thrust(finish)
+    if speed > 0 then
+      return -rpm, false
     end
-    return rpm_for_thrust(thrust_accel)
+    return rpm, false
   end
-  local rpm = rpm_for_thrust(finish)
+  if speed > 0 and finish > GRAVITY then
+    return rpm_for_thrust(finish - GRAVITY), true
+  end
   if speed > 0 then
-    return -rpm
+    return rpm_for_thrust(GRAVITY - finish), false
   end
-  return rpm
+  return rpm_for_thrust(GRAVITY + finish), false
 end
 
 function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
@@ -114,26 +149,28 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   end
   if captured ~= nil then
     if math.abs(speed) < 0.05 then
-      return rest_rpm, nil
+      return rest_rpm, nil, false
     end
     local sign = 1
     if speed < 0 then
       sign = -1
     end
     if sign ~= captured.sign then
-      return finish_rpm(speed, vertical), nil
+      local rpm, reverser = finish_rpm(speed, vertical)
+      return rpm, nil, reverser
     end
     if math.abs(speed) <= captured.accel * STEP * (1 + 1e-4) then
-      return finish_rpm(speed, vertical), nil
+      local rpm, reverser = finish_rpm(speed, vertical)
+      return rpm, nil, reverser
     end
-    return captured.rpm, captured
+    return captured.rpm, captured, captured.reverser == true
   end
   if math.abs(speed) < 0.05 then
-    return rest_rpm, nil
+    return rest_rpm, nil, false
   end
-  local rpm
+  local rpm, reverser = 0, false
   if vertical then
-    rpm = M.elevation_brake_rpm(speed, mass, rest_rpm)
+    rpm, reverser = M.elevation_brake_rpm(speed, mass, rest_rpm)
   else
     rpm = M.brake_rpm(speed, mass)
   end
@@ -141,8 +178,8 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   if speed < 0 then
     sign = -1
   end
-  local accel = braking_rate(rpm, mass, speed, vertical)
-  return rpm, { rpm = rpm, sign = sign, accel = accel }
+  local accel = braking_rate(rpm, mass, speed, vertical, reverser)
+  return rpm, { rpm = rpm, sign = sign, accel = accel, reverser = reverser }, reverser
 end
 
 function M.stopping_distance(speed, rpm, mass)

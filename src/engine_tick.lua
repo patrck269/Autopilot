@@ -349,8 +349,9 @@ function M.tick(state, input)
   else
     state.brake_z = nil
   end
+  local elev_reverse = false
   if stop_y then
-    y_hold, state.brake_elev = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
+    y_hold, state.brake_elev, elev_reverse = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
     if state.brake_elev == nil and math.abs(ship.vy) < 0.05 then
       state.hover_rpm = y_hold
     end
@@ -419,6 +420,12 @@ function M.tick(state, input)
   local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
   if stop_y then
     rsc11 = y_hold
+  elseif state.job == "altitude" then
+    local arrest_rpm, arrest_rev = jobs.arrest_climb(ship.vy, target_y - ship.y)
+    if arrest_rpm ~= nil then
+      rsc11 = arrest_rpm
+      elev_reverse = arrest_rev == true
+    end
   end
   outputs.rsc.rsc11 = rsc11
   outputs.relays.relay6 = false
@@ -524,7 +531,7 @@ function M.tick(state, input)
   if stop_z then
     apply_side_brake(outputs, z_hold)
   end
-  outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side")
+  outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
 
   return state, clamp_outputs(outputs), status_of(state, ship, input.su, outage_name)
 end
