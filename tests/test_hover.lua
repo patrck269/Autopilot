@@ -6,7 +6,13 @@ A.eq(hover.adjust(100, 0, 2), 100, "hold")
 A.eq(hover.adjust(100, 1, 2), 98, "rising")
 A.eq(hover.adjust(100, -1, 2), 102, "sinking")
 
-A.near(hover.desired_vertical(100, 400, 8, 20), 280 / 15, 1e-9, "reach the 20-block shell in 15 seconds")
+local shell = hover.desired_vertical(100, 400, 8, 20)
+A.near(shell, hover.climb_limit(), 1e-9, "a far climb uses the stoppable rate")
+A.near(hover.desired_vertical(0, 5000, 8, 20), shell, 1e-9, "a farther climb stays on that rate")
+A.near(hover.desired_vertical(400, 100, 8, 20), -shell, 1e-9, "a far descent uses the same limit")
+if shell <= 7 / 60 or shell >= 280 / 15 then
+  error("shell rate is outside the stoppable climb, got " .. tostring(shell))
+end
 A.near(hover.desired_vertical(385, 400, 8, 20), 7 / 60, 1e-9, "slow remainder inside 20 blocks")
 A.eq(hover.desired_vertical(396, 400, 8, 20), 0, "deadzone holds")
 

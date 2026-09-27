@@ -202,6 +202,7 @@ state, outputs = engine_tick.tick(state, {
 A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
 
 local jobs = require("jobs")
+local hover = require("hover")
 
 ship.y = 450
 ship.vy = 0
@@ -402,6 +403,7 @@ local function fly_until_rest(state, command)
   local x0, y0, z0 = ship.x, ship.y, ship.z
   local peak_x, peak_y, peak_z = 0, 0, 0
   local min_vx, max_vx = ship.vx, ship.vx
+  local min_vy = ship.vy
   local outputs
   local fresh = command ~= nil
   for _ = 1, 400 do
@@ -425,11 +427,17 @@ local function fly_until_rest(state, command)
     peak_x = math.max(peak_x, math.abs(ship.x - x0))
     peak_y = math.max(peak_y, math.abs(ship.y - y0))
     peak_z = math.max(peak_z, math.abs(ship.z - z0))
+    if outputs.relays.relay6 == true then
+      error("stop turned the elevation reverser on")
+    end
     if ship.vx < min_vx then
       min_vx = ship.vx
     end
     if ship.vx > max_vx then
       max_vx = ship.vx
+    end
+    if ship.vy < min_vy then
+      min_vy = ship.vy
     end
     if math.abs(ship.vx) < 0.05 and math.abs(ship.vy) < 0.05 and math.abs(ship.vz) < 0.05
       and state.brake_x == nil and state.brake_z == nil and state.brake_elev == nil then
@@ -444,7 +452,7 @@ local function fly_until_rest(state, command)
     stick_fresh = false,
     config = cfg,
   })
-  return state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx
+  return state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx, min_vy
 end
 
 local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
@@ -510,6 +518,61 @@ if min_vx < -0.05 then
   error("semi-cap cancel reversed to " .. tostring(min_vx) .. " m/s")
 end
 assert_stopped("cancel", state, outputs, peak_x, peak_y, peak_z)
+
+ship.vx = 0
+ship.vz = 0
+ship.vy = 0
+ship.x = 0
+ship.y = 100
+ship.z = 0
+ship.pitch = 0
+ship.roll = 0
+ship.heading = 0
+ship.pitch_rate = 0
+ship.roll_rate = 0
+ship.dt = 0.05
+state = engine_tick.new_state()
+local function climb_step(command)
+  local stepped
+  state, stepped = engine_tick.tick(state, {
+    ship = ship,
+    command = command,
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = 430,
+  })
+  if stepped.relays.relay6 == true then
+    error("climb turned the elevation reverser on")
+  end
+  local accel = axis_accel(stepped.rsc.rsc10, cfg.ship_mass)
+  ship.x, ship.vx = coast(ship.x, ship.vx, accel, 0.05)
+  local lift = jobs.thrust(stepped.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+  ship.y, ship.vy = coast(ship.y, ship.vy, lift, 0.05)
+  local side = side_accel(stepped, cfg.ship_mass)
+  ship.z, ship.vz = coast(ship.z, ship.vz, side, 0.05)
+end
+local shell = hover.desired_vertical(100, 400, cfg.altitude_deadzone, cfg.altitude_approach)
+climb_step({ type = "set_altitude", y = 400 })
+A.eq(state.mode, "idle", "altitude climb does not change mode")
+A.eq(state.job, "altitude", "altitude climb is the active job")
+local climbed = 0
+while ship.vy < shell and climbed < 20000 do
+  climb_step(nil)
+  climbed = climbed + 1
+end
+if ship.vy < shell then
+  error("climb did not reach the shell rate, vy " .. tostring(ship.vy))
+end
+local min_vy
+state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx, min_vy = fly_until_rest(state, { type = "cancel_jobs" })
+if min_vy < -1e-6 then
+  error("climb cancel reversed to " .. tostring(min_vy) .. " m/s")
+end
+A.eq(state.job, "hover", "climb cancel hovers")
+A.eq(state.waypoint_x, nil, "climb cancel clears the waypoint")
+assert_stopped("climb cancel", state, outputs, peak_x, peak_y, peak_z)
 
 ship.vx = 4
 ship.vz = 3

@@ -351,6 +351,9 @@ function M.tick(state, input)
   end
   if stop_y then
     y_hold, state.brake_elev = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
+    if state.brake_elev == nil and math.abs(ship.vy) < 0.05 then
+      state.hover_rpm = y_hold
+    end
   else
     state.brake_elev = nil
   end
@@ -383,6 +386,10 @@ function M.tick(state, input)
         equilibrium
       ))
     elseif vertical == "climb" or vertical == "hold" or vertical == "descend" then
+      local equilibrium = state.elevation_equilibrium
+      if equilibrium == nil or equilibrium <= 0 then
+        equilibrium = cfg.hover_equilibrium
+      end
       state.hover_rpm = config.clamp_rpm(hover.seek(
         state.hover_rpm,
         ship.vy,
@@ -395,6 +402,7 @@ function M.tick(state, input)
         cfg.hover_gain_near,
         cfg.hover_step_near
       ))
+      state.hover_rpm = hover.limit_elevation_rpm(state.hover_rpm, ship.vy, equilibrium, ship.dt)
     end
   end
 

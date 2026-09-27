@@ -122,6 +122,17 @@ function M.adjust(rpm, vertical_speed, gain)
   return rpm - gain * vertical_speed
 end
 
+local CLIMB_STEP = 0.05
+local CLIMB_GRAVITY = 10
+
+-- With the reverser off, a climb brakes at one g. The extra distance of a full
+-- control step that zeroes the last fraction of that speed is (step^2 * g) / 8.
+function M.climb_limit()
+  local excess = (CLIMB_STEP * CLIMB_STEP * CLIMB_GRAVITY) / 8
+  local budget = 1 - excess - 0.02
+  return math.sqrt(2 * CLIMB_GRAVITY * budget)
+end
+
 function M.desired_vertical(altitude, target_altitude, deadzone, approach)
   local gap = target_altitude - altitude
   local distance = math.abs(gap)
@@ -132,10 +143,45 @@ function M.desired_vertical(altitude, target_altitude, deadzone, approach)
   if gap < 0 then
     sign = -1
   end
+  local rate
   if distance <= approach then
-    return sign * ((distance - deadzone) / 60)
+    rate = sign * ((distance - deadzone) / 60)
+  else
+    rate = sign * ((distance - approach) / 15)
   end
-  return sign * ((distance - approach) / 15)
+  local limit = M.climb_limit()
+  if rate > limit then
+    return limit
+  end
+  if rate < -limit then
+    return -limit
+  end
+  return rate
+end
+
+function M.limit_elevation_rpm(rpm, vertical_speed, equilibrium, dt)
+  if rpm == nil or rpm <= 0 then
+    return 0
+  end
+  if equilibrium == nil or equilibrium <= 0 then
+    equilibrium = 430
+  end
+  if dt == nil or dt <= 0 then
+    dt = CLIMB_STEP
+  end
+  if vertical_speed == nil then
+    vertical_speed = 0
+  end
+  local max_accel = (M.climb_limit() - vertical_speed) / dt
+  local powered = 1 + max_accel / CLIMB_GRAVITY
+  if powered < 0 then
+    powered = 0
+  end
+  local max_rpm = equilibrium * (powered ^ (1 / 1.2))
+  if rpm > max_rpm then
+    rpm = max_rpm
+  end
+  return config.clamp_rpm(rpm)
 end
 
 function M.seek(rpm, vertical_speed, altitude, target_altitude, gain, step, deadzone, approach, near_gain, near_step)

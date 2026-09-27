@@ -66,6 +66,29 @@ function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
   return rpm_for_thrust(thrust_accel)
 end
 
+local function braking_rate(rpm, mass, speed, vertical)
+  if mass == nil or mass <= 0 or rpm == nil or speed == nil then
+    return 0
+  end
+  local specific = M.thrust(rpm, mass) / mass
+  local rate
+  if vertical then
+    if speed > 0 then
+      rate = GRAVITY - specific
+    else
+      rate = specific - GRAVITY
+    end
+  elseif (speed > 0 and rpm < 0) or (speed < 0 and rpm > 0) then
+    rate = specific
+  else
+    rate = 0
+  end
+  if rate < 0 then
+    return 0
+  end
+  return rate
+end
+
 local function finish_rpm(speed, vertical)
   local finish = math.abs(speed) / STEP
   if vertical then
@@ -108,7 +131,6 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   if math.abs(speed) < 0.05 then
     return rest_rpm, nil
   end
-  local accel = stop_accel(speed)
   local rpm
   if vertical then
     rpm = M.elevation_brake_rpm(speed, mass, rest_rpm)
@@ -119,6 +141,7 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   if speed < 0 then
     sign = -1
   end
+  local accel = braking_rate(rpm, mass, speed, vertical)
   return rpm, { rpm = rpm, sign = sign, accel = accel }
 end
 
