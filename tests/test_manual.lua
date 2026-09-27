@@ -32,11 +32,12 @@ if not (raised > 100) then
   error("x rpm should rise when speed is below target, got " .. tostring(raised))
 end
 
+local config = require("config")
 local full_side = manual.rcs_rpm(1, 200000000)
-if full_side < 1000 or full_side > 100000 then
+if full_side < 1000 or full_side > config.default().max_rpm then
   error("full sideways rcs rpm out of range: " .. tostring(full_side))
 end
 local full_vert = manual.rcs_rpm(1, 200000000)
-if full_vert < 1000 or full_vert > 100000 then
+if full_vert < 1000 or full_vert > config.default().max_rpm then
   error("full vertical rcs rpm out of range: " .. tostring(full_vert))
 end

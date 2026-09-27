@@ -1,3 +1,5 @@
+local config = require("config")
+
 local M = {}
 
 function M.velocity(sx, sy, sz)
@@ -20,27 +22,23 @@ function M.release_effort(velocity)
 end
 
 function M.x_rpm(current_rpm, current_speed, target_speed, step, hold)
+  local next_rpm = current_rpm
   if current_speed < target_speed - 0.05 then
-    return current_rpm + step
-  end
-  if current_speed > target_speed + 0.05 then
-    return current_rpm - step
-  end
-  if hold then
-    return current_rpm
-  end
-  if math.abs(target_speed) <= 0.05 then
+    next_rpm = current_rpm + step
+  elseif current_speed > target_speed + 0.05 then
+    next_rpm = current_rpm - step
+  elseif hold then
+    next_rpm = current_rpm
+  elseif math.abs(target_speed) <= 0.05 then
     if current_rpm > step then
-      return current_rpm - step
-    end
-    if current_rpm < -step then
-      return current_rpm + step
-    end
-    if current_rpm ~= 0 then
-      return 0
+      next_rpm = current_rpm - step
+    elseif current_rpm < -step then
+      next_rpm = current_rpm + step
+    elseif current_rpm ~= 0 then
+      next_rpm = 0
     end
   end
-  return current_rpm
+  return config.clamp_rpm(next_rpm)
 end
 
 function M.rcs_rpm(stick, mass)
@@ -49,7 +47,7 @@ function M.rcs_rpm(stick, mass)
   end
   local force = mass * 0.25 * math.abs(stick)
   local ratio = (force / 100000) ^ (1 / 1.2)
-  return ratio * 256
+  return config.clamp_rpm(ratio * 256)
 end
 
 return M

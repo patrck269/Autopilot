@@ -1,3 +1,5 @@
+local config = require("config")
+
 local SIDES = { "bottom", "top", "front", "back", "left", "right" }
 
 local M = {}
@@ -12,7 +14,7 @@ function M.apply(outputs, devices)
   for name, rpm in pairs(outputs.rsc) do
     local device = devices[name]
     if device ~= nil and device.setTargetSpeed ~= nil then
-      device.setTargetSpeed(rpm)
+      device.setTargetSpeed(config.clamp_rpm(rpm))
     end
   end
   local relay2 = devices.relay2

@@ -1,3 +1,5 @@
+local config = require("config")
+
 local M = {}
 
 function M.use_reverser(failed_prop)
@@ -65,7 +67,7 @@ function M.descend_rpm(rpm, vertical_speed, altitude, target, deadzone, dt, equi
   if next_rpm < 0 then
     return 0
   end
-  return next_rpm
+  return config.clamp_rpm(next_rpm)
 end
 
 function M.simulate_descent(altitude, target, deadzone, rpm, step)
@@ -136,13 +138,13 @@ function M.seek(rpm, vertical_speed, altitude, target_altitude, gain, step, dead
   local distance = math.abs(gap)
   if distance <= deadzone then
     if math.abs(vertical_speed) < 0.05 then
-      return rpm
+      return config.clamp_rpm(rpm)
     end
     local held = rpm - near_gain * vertical_speed
     if held < 0 then
       return 0
     end
-    return held
+    return config.clamp_rpm(held)
   end
   local use_gain = gain
   local use_step = step
@@ -158,7 +160,7 @@ function M.seek(rpm, vertical_speed, altitude, target_altitude, gain, step, dead
   if next_rpm < 0 then
     return 0
   end
-  return next_rpm
+  return config.clamp_rpm(next_rpm)
 end
 
 return M

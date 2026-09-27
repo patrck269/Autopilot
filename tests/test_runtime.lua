@@ -29,3 +29,14 @@ A.eq(rsc.calls[1], "rpm -12", "rsc")
 A.eq(relay.calls[1], "analog bottom 4", "stepped throttle")
 A.eq(relay.calls[2], "out bottom true", "cutoff all sides starts at bottom")
 A.eq(#relay.calls, 7, "analog plus six sides")
+
+local config = require("config")
+local limit = config.default().max_rpm
+local high_x = recorder()
+local high_z = recorder()
+runtime.apply({
+  rsc = { rsc10 = 50000, rsc11 = -50000 },
+  relays = {},
+}, { rsc10 = high_x, rsc11 = high_z })
+A.eq(high_x.calls[1], "rpm " .. tostring(limit), "high target is clamped")
+A.eq(high_z.calls[1], "rpm " .. tostring(-limit), "negative target is clamped")

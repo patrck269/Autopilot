@@ -201,7 +201,15 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
 
-ship.vx = 8
+local jobs = require("jobs")
+
+local function stop_from(speed, rpm, mass)
+  local accel = jobs.thrust(rpm) / mass
+  return (speed * speed) / (2 * accel)
+end
+
+ship.vx = 0.4
+ship.vz = 0.3
 ship.vy = 0
 ship.y = 180
 ship.x = 10
@@ -225,18 +233,47 @@ A.eq(state.phase, "hold", "cancel holds")
 A.eq(state.target_speed, 0, "cancel stops the speed job")
 A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
 A.eq(state.waypoint_z, nil, "cancel clears waypoint z")
-if status.stop_distance > 1 then
-  error("stop distance should be within 1 m, got " .. tostring(status.stop_distance))
+A.eq(outputs.rsc.rsc10, jobs.brake_rpm(ship.vx, cfg.ship_mass), "x brake matches the shipped curve")
+A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(ship.vz, cfg.ship_mass), "z brake drives the other horizontal axis")
+local distance_x = stop_from(ship.vx, outputs.rsc.rsc10, cfg.ship_mass)
+local distance_z = stop_from(ship.vz, jobs.brake_rpm(ship.vz, cfg.ship_mass), cfg.ship_mass)
+if distance_x > 1 then
+  error("x stop should be within 1 m, got " .. tostring(distance_x))
 end
-if not (outputs.rsc.rsc10 < 0) then
-  error("cancel should command a stop, rsc10 " .. tostring(outputs.rsc.rsc10))
+if distance_z > 1 then
+  error("z stop should be within 1 m, got " .. tostring(distance_z))
+end
+if math.abs(outputs.rsc.rsc10) > cfg.max_rpm or math.abs(outputs.rsc.rsc7) > cfg.max_rpm then
+  error("cancel brake exceeded the server rpm cap")
+end
+
+ship.vx = 8
+ship.vz = 0
+state = engine_tick.new_state()
+state.mode = "auto"
+state.waypoint_x = 800
+state.waypoint_z = 900
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "cancel_jobs" },
+  su = 4,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(outputs.rsc.rsc10, -cfg.max_rpm, "fast cancel uses the server cap, not a few rpm")
+if math.abs(outputs.rsc.rsc10) > cfg.max_rpm then
+  error("fast cancel rpm over the server cap")
 end
 
 ship.vx = 4
-ship.vy = 0
+ship.vz = 0.35
+ship.vy = 1
 ship.y = 120
 state = engine_tick.new_state()
 state.mode = "manual"
+state.hover_rpm = 430
 state, outputs = engine_tick.tick(state, {
   ship = ship,
   command = nil,
@@ -246,9 +283,38 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if not (outputs.rsc.rsc10 < 0) then
-  error("released stick should oppose velocity, rsc10 " .. tostring(outputs.rsc.rsc10))
+A.eq(outputs.rsc.rsc10, jobs.brake_rpm(4, cfg.ship_mass), "released stick brakes x to a stop")
+A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(0.35, cfg.ship_mass), "released stick brakes lateral speed")
+local first_hover = state.hover_rpm
+if not (first_hover < 430) then
+  error("released stick should lower elevation rpm while climbing, got " .. tostring(first_hover))
 end
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(outputs.rsc.rsc10, jobs.brake_rpm(4, cfg.ship_mass), "x brake does not flip while speed remains")
+if not (state.hover_rpm < first_hover) then
+  error("vertical brake should keep reducing rpm while still climbing")
+end
+ship.vx = 0
+ship.vz = 0
+ship.vy = 0
+local held_hover = state.hover_rpm
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(outputs.rsc.rsc10, 0, "x brake is zero once stopped")
+A.eq(state.hover_rpm, held_hover, "elevation rpm holds once vertical speed is gone")
 
 ship.vx = 0
 ship.vy = 0
@@ -262,7 +328,7 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = true,
   config = cfg,
 })
-if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > 100000 then
+if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
   error("full sideways command rpm out of range: " .. tostring(outputs.rsc.rsc6))
 end
 
@@ -275,7 +341,7 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = true,
   config = cfg,
 })
-if outputs.rsc.rsc2 < 1000 or outputs.rsc.rsc2 > 100000 then
+if outputs.rsc.rsc2 < 1000 or outputs.rsc.rsc2 > cfg.max_rpm then
   error("full vertical command rpm out of range: " .. tostring(outputs.rsc.rsc2))
 end
 A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")

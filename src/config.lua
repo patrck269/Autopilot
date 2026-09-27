@@ -1,7 +1,23 @@
 local M = {}
 
+local MAX_RPM = 32769
+
+function M.clamp_rpm(rpm)
+  if type(rpm) ~= "number" then
+    return 0
+  end
+  if rpm > MAX_RPM then
+    return MAX_RPM
+  end
+  if rpm < -MAX_RPM then
+    return -MAX_RPM
+  end
+  return rpm
+end
+
 function M.default()
   return {
+    max_rpm = MAX_RPM,
     climb_rpm = 256,
     climb_rate = 4,
     altitude_deadzone = 8,

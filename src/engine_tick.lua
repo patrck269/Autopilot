@@ -1,3 +1,4 @@
+local config = require("config")
 local manual = require("manual")
 local speed = require("speed")
 local hover = require("hover")
@@ -51,6 +52,27 @@ function M.new_state()
     diag_selection = nil,
     diag_elevation = 0,
   }
+end
+
+local function clamp_outputs(outputs)
+  for name, rpm in pairs(outputs.rsc) do
+    outputs.rsc[name] = config.clamp_rpm(rpm)
+  end
+  return outputs
+end
+
+local function apply_side_brake(outputs, rpm)
+  outputs.rsc.rsc6 = 0
+  outputs.rsc.rsc7 = 0
+  outputs.rsc.rsc8 = 0
+  outputs.rsc.rsc9 = 0
+  if rpm > 0 then
+    outputs.rsc.rsc6 = rpm
+    outputs.rsc.rsc8 = rpm
+  elseif rpm < 0 then
+    outputs.rsc.rsc7 = -rpm
+    outputs.rsc.rsc9 = -rpm
+  end
 end
 
 local function status_of(state, ship, su, outage_name)
@@ -198,10 +220,10 @@ function M.tick(state, input)
     state.mode = "blocked"
     local held = mix.zero()
     held.rsc.rsc11 = state.hover_rpm
-    return state, held, status_of(state, ship, input.su, nil)
+    return state, clamp_outputs(held), status_of(state, ship, input.su, nil)
   end
   if state.emergency then
-    return state, mix.zero(), status_of(state, input.ship, input.su, nil)
+    return state, clamp_outputs(mix.zero()), status_of(state, input.ship, input.su, nil)
   end
   if state.diagnostic then
     local hover_opt = nil
@@ -209,7 +231,7 @@ function M.tick(state, input)
       hover_opt = { enabled = true, rpm = state.diag_elevation }
     end
     local outputs = diagnostic.apply(state.diag_selection, hover_opt)
-    return state, outputs, status_of(state, input.ship, input.su, nil)
+    return state, clamp_outputs(outputs), status_of(state, input.ship, input.su, nil)
   end
   if input.stick_fresh ~= true then
     state.stick = { x = 0, y = 0, z = 0 }
@@ -242,12 +264,13 @@ function M.tick(state, input)
 
   local manual_fly = state.mode == "manual" and (state.stick.x ~= 0 or state.stick.y ~= 0 or state.stick.z ~= 0)
   if state.job == "hover" then
-    state.stop_distance = jobs.stop_distance(horiz)
-    if math.abs(ship.vx) > 0.05 then
-      vx = -ship.vx
-    end
-    if math.abs(ship.vz) > 0.05 then
-      vz = -ship.vz
+    local brake_x = jobs.brake_rpm(ship.vx, cfg.ship_mass)
+    local brake_z = jobs.brake_rpm(ship.vz, cfg.ship_mass)
+    local distance_x = jobs.stopping_distance(ship.vx, brake_x, cfg.ship_mass)
+    local distance_z = jobs.stopping_distance(ship.vz, brake_z, cfg.ship_mass)
+    state.stop_distance = distance_x
+    if distance_z > distance_x then
+      state.stop_distance = distance_z
     end
     vertical = "hold"
   elseif state.job == "altitude" then
@@ -255,14 +278,13 @@ function M.tick(state, input)
   elseif manual_fly or state.mode == "manual" then
     vx, vy, vz = manual.velocity(state.stick.x, state.stick.y, state.stick.z)
     if state.stick.x == 0 then
-      vx = manual.release_effort(ship.vx) * 3
+      state.x_rpm = jobs.brake_rpm(ship.vx, cfg.ship_mass)
+    else
+      state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     end
-    state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     local target_vy = 0
     if state.stick.z ~= 0 then
       target_vy = vz
-    else
-      target_vy = manual.release_effort(ship.vy) * 3
     end
     state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, target_vy, cfg.hover_step, true)
     vertical = "hold"
@@ -313,7 +335,7 @@ function M.tick(state, input)
       if equilibrium == nil or equilibrium <= 0 then
         equilibrium = cfg.hover_equilibrium
       end
-      state.hover_rpm = hover.descend_rpm(
+      state.hover_rpm = config.clamp_rpm(hover.descend_rpm(
         state.hover_rpm,
         ship.vy,
         ship.y,
@@ -321,9 +343,9 @@ function M.tick(state, input)
         cfg.altitude_deadzone,
         ship.dt,
         equilibrium
-      )
+      ))
     elseif vertical == "climb" or vertical == "hold" or vertical == "descend" then
-      state.hover_rpm = hover.seek(
+      state.hover_rpm = config.clamp_rpm(hover.seek(
         state.hover_rpm,
         ship.vy,
         ship.y,
@@ -334,14 +356,17 @@ function M.tick(state, input)
         cfg.altitude_approach,
         cfg.hover_gain_near,
         cfg.hover_step_near
-      )
+      ))
     end
   end
 
   local rsc10, relay2 = mix.x(vx, ref)
-  if state.mode == "manual" then
+  if state.job == "hover" then
+    rsc10 = jobs.brake_rpm(ship.vx, cfg.ship_mass)
+  elseif state.mode == "manual" then
     rsc10 = state.x_rpm
   end
+  rsc10 = config.clamp_rpm(rsc10)
   outputs.rsc.rsc10 = rsc10
   outputs.relays.relay2 = relay2
   local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
@@ -444,9 +469,12 @@ function M.tick(state, input)
       outputs.rsc.rsc5 = vert_rpm
     end
   end
+  if state.job == "hover" or (state.mode == "manual" and state.stick.y == 0) then
+    apply_side_brake(outputs, jobs.brake_rpm(ship.vz, cfg.ship_mass))
+  end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side")
 
-  return state, outputs, status_of(state, ship, input.su, outage_name)
+  return state, clamp_outputs(outputs), status_of(state, ship, input.su, outage_name)
 end
 
 return M
