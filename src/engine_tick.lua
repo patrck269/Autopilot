@@ -233,7 +233,8 @@ function M.tick(state, input)
       target_y,
       cfg.hover_gain,
       cfg.hover_step,
-      cfg.climb_rate
+      cfg.climb_rate,
+      cfg.altitude_deadzone
     )
   end
 

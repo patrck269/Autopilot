@@ -4,6 +4,7 @@ function M.default()
   return {
     climb_rpm = 256,
     climb_rate = 4,
+    altitude_deadzone = 8,
     hover_step = 10,
     outage_threshold = 0.2,
     outage_fail_seconds = 5,
