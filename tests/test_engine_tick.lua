@@ -232,14 +232,16 @@ A.eq(outputs.rsc.rsc10, jobs.brake_rpm(ship.vx, cfg.ship_mass), "x brake matches
 A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(ship.vz, cfg.ship_mass), "z brake drives the other horizontal axis")
 local accel_x = jobs.thrust(outputs.rsc.rsc10, cfg.ship_mass) / cfg.ship_mass
 local accel_z = jobs.thrust(outputs.rsc.rsc7, cfg.ship_mass) / cfg.ship_mass
-if accel_x < (ship.vx * ship.vx) / 2 then
-  error("x brake accel " .. tostring(accel_x) .. " is below a 1 m stop")
+local distance_x = (ship.vx * ship.vx) / (2 * accel_x)
+local distance_z = (ship.vz * ship.vz) / (2 * accel_z)
+if distance_x > 1 then
+  error("x stop " .. tostring(distance_x) .. " m from rpm " .. tostring(outputs.rsc.rsc10))
 end
-if accel_z < (ship.vz * ship.vz) / 2 then
-  error("z brake accel " .. tostring(accel_z) .. " is below a 1 m stop")
+if distance_z > 1 then
+  error("z stop " .. tostring(distance_z) .. " m from rpm " .. tostring(outputs.rsc.rsc7))
 end
-if outputs.rsc.rsc10 == -ship.vx then
-  error("cancel still commands forward speed as rpm")
+if math.abs(outputs.rsc.rsc10) < 100 or math.abs(outputs.rsc.rsc7) < 100 then
+  error("cancel rpm is only a few counts: " .. tostring(outputs.rsc.rsc10))
 end
 if math.abs(outputs.rsc.rsc10) > cfg.max_rpm or math.abs(outputs.rsc.rsc7) > cfg.max_rpm then
   error("cancel brake exceeded the server rpm cap")
@@ -297,6 +299,54 @@ state, outputs = engine_tick.tick(state, {
 A.eq(outputs.rsc.rsc10, 0, "x brake is zero once stopped")
 A.eq(outputs.rsc.rsc6, 0, "lateral brake is zero once stopped")
 A.eq(state.hover_rpm, held_climb, "elevation rpm holds once vertical speed is gone")
+
+ship.vx = -3
+ship.vz = -3
+ship.vy = -3
+ship.y = 120
+state = engine_tick.new_state()
+state.mode = "manual"
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+if outputs.rsc.rsc10 <= 0 then
+  error("speed of -3 m/s must still be braked toward rest, rsc10 " .. tostring(outputs.rsc.rsc10))
+end
+if outputs.rsc.rsc6 <= 0 then
+  error("lateral -3 m/s must still drive the RCS, rsc6 " .. tostring(outputs.rsc.rsc6))
+end
+if state.hover_rpm <= 430 then
+  error("a 3 m/s fall held hover rpm " .. tostring(state.hover_rpm))
+end
+local back_accel = jobs.thrust(outputs.rsc.rsc10, cfg.ship_mass) / cfg.ship_mass
+local side_accel = jobs.thrust(outputs.rsc.rsc6, cfg.ship_mass) / cfg.ship_mass
+local climb_accel = jobs.thrust(outputs.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+if (9 / (2 * back_accel)) > 1 then
+  error("backward stop " .. tostring(9 / (2 * back_accel)) .. " m")
+end
+if (9 / (2 * side_accel)) > 1 then
+  error("lateral stop " .. tostring(9 / (2 * side_accel)) .. " m")
+end
+if climb_accel <= 0 or (9 / (2 * climb_accel)) > 1 then
+  error("fall stop accel " .. tostring(climb_accel))
+end
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+if outputs.rsc.rsc10 <= 0 or outputs.rsc.rsc6 <= 0 or state.hover_rpm <= 430 then
+  error("the -3 m/s case hunted off the stop command")
+end
 
 ship.vx = 0
 ship.vy = 0
