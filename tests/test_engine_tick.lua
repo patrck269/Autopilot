@@ -203,6 +203,81 @@ A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
 
 local jobs = require("jobs")
 
+ship.y = 450
+ship.vy = 0
+ship.vx = 0
+ship.vz = 0
+ship.pitch_rate = 0
+ship.roll_rate = 0
+state = engine_tick.new_state()
+state.mode = "manual"
+state.waypoint_x = 800
+state.waypoint_z = 900
+state.hover_rpm = 430
+local descent_floor = ship.y
+local descent_rpm = 430
+local reverser_on = false
+local inside = false
+for _ = 1, 400 do
+  local stepped
+  state, stepped = engine_tick.tick(state, {
+    ship = ship,
+    command = { type = "set_altitude", y = 400 },
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = 430,
+  })
+  if stepped.relays.relay6 == true then
+    reverser_on = true
+  end
+  if stepped.rsc.rsc11 < descent_rpm then
+    descent_rpm = stepped.rsc.rsc11
+  end
+  local net = jobs.thrust(stepped.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+  ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
+  ship.vy = ship.vy + net * 0.05
+  if ship.y < descent_floor then
+    descent_floor = ship.y
+  end
+  if ship.y <= 408 and ship.y >= 392 then
+    inside = true
+  end
+end
+A.eq(state.mode, "manual", "released stick keeps the altitude mode")
+A.eq(state.job, "altitude", "released stick keeps the altitude job")
+A.eq(reverser_on, false, "altitude descent keeps the reverser off")
+if descent_rpm >= 430 then
+  error("altitude descent did not lower elevation rpm, got " .. tostring(descent_rpm))
+end
+if not inside then
+  error("altitude descent missed the deadzone, y " .. tostring(ship.y))
+end
+if descent_floor < 392 then
+  error("altitude descent crossed the far side at " .. tostring(descent_floor))
+end
+
+ship.y = 400
+ship.vy = 0
+state = engine_tick.new_state()
+state.mode = "manual"
+state.job = "altitude"
+state.altitude = 400
+state.altitude_set = true
+state.hover_rpm = 430
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(outputs.rsc.rsc11, 430, "steady altitude inside the band holds rpm")
+A.eq(outputs.relays.relay6, false, "steady altitude keeps the reverser off")
+
 local latched, capture = jobs.hold_stop(nil, 8, cfg.ship_mass, 0, false)
 local again, capture_again = jobs.hold_stop(capture, 4, cfg.ship_mass, 0, false)
 A.eq(again, latched, "held brake ignores the smaller speed")

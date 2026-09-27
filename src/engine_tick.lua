@@ -160,6 +160,7 @@ local function apply_command(state, command)
     state.altitude_set = true
     state.job = "altitude"
     state.phase = "hold"
+    state.brake_elev = nil
     state.waypoint_x = nil
     state.waypoint_z = nil
     state.target_speed = 0
@@ -336,7 +337,7 @@ function M.tick(state, input)
   end
   local stop_x = state.job == "hover" or (state.mode == "manual" and state.stick.x == 0)
   local stop_z = state.job == "hover" or (state.mode == "manual" and state.stick.y == 0)
-  local stop_y = state.job == "hover" or (state.mode == "manual" and state.stick.z == 0)
+  local stop_y = state.job == "hover" or (state.job ~= "altitude" and state.mode == "manual" and state.stick.z == 0)
   local x_hold, z_hold, y_hold = 0, 0, rest_elevation()
   if stop_x then
     x_hold, state.brake_x = jobs.hold_stop(state.brake_x, ship.vx, cfg.ship_mass, 0, false)
