@@ -330,6 +330,7 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
 })
 A.eq(state.hover_rpm, 430, "the exact altitude reuses its rpm")
+A.eq(outputs.rsc.rsc11, 430, "the stored rpm is commanded while holding")
 ship.y = 402
 ship.vy = 0
 state.hover_rpm = 100

@@ -360,7 +360,14 @@ function M.tick(state, input)
       state.stop_distance = distance
     end
   end
-  if not stop_y and (state.mode ~= "manual" or state.job == "altitude") then
+  local remembered = nil
+  if state.job == "altitude" then
+    remembered = hover.recall(state.rpm_memory, state.altitude)
+  end
+  local holding_known = remembered ~= nil and math.abs(ship.y - state.altitude) <= 0.5 and math.abs(ship.vy) < 0.05
+  if holding_known then
+    state.hover_rpm = remembered
+  elseif not stop_y and (state.mode ~= "manual" or state.job == "altitude") then
     if ship.y > target_y + cfg.altitude_deadzone then
       local equilibrium = state.elevation_equilibrium
       if equilibrium == nil or equilibrium <= 0 then
