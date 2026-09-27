@@ -16,6 +16,7 @@ local files = {
   { "src/runtime.lua", "src/runtime.lua" },
   { "src/speed.lua", "src/speed.lua" },
   { "src/startup.lua", "src/startup.lua" },
+  { "src/views.lua", "src/views.lua" },
 }
 
 local function download(urlPath, dest)

@@ -9,6 +9,7 @@ local runtime = require("runtime")
 local protocol = require("protocol")
 local monitors = require("monitors")
 local mfd = require("mfd")
+local views = require("views")
 
 local cfg = config.default()
 local state = engine_tick.new_state()
@@ -44,7 +45,7 @@ local function collect_ship()
     x = pos.x, y = pos.y, z = pos.z,
     vx = vel.x, vy = vel.y, vz = vel.z,
     pitch = pitch, roll = roll, heading = yaw,
-    pitch_rate = omega.x, roll_rate = omega.z,
+    pitch_rate = omega.x, roll_rate = omega.z, yaw_rate = omega.y,
     dt = 0.05,
   }
 end
@@ -84,60 +85,172 @@ end
 
 local pages, ordered_names = attach_monitors()
 
-local function draw(status, outputs)
+local PALETTE = {
+  green = colors.green,
+  gray = colors.gray,
+  red = colors.red,
+  black = colors.black,
+  white = colors.white,
+}
+
+local function paint_tabs(mon, w, h, page)
+  for _, control in ipairs(mfd.controls(w, h)) do
+    local bg = colors.blue
+    if control.page == page then
+      bg = colors.lime
+    end
+    mon.setBackgroundColor(bg)
+    mon.setTextColor(colors.black)
+    local label = control.label
+    if #label > control.w then
+      label = string.sub(label, 1, control.w)
+    end
+    mon.setCursorPos(control.x, control.y)
+    mon.write(label .. string.rep(" ", control.w - #label))
+  end
+end
+
+local function shaft_rpm()
+  local gauge = peripheral.wrap(cfg.names.speedometer)
+  if gauge ~= nil and gauge.getSpeed ~= nil then
+    return gauge.getSpeed()
+  end
+  return 0
+end
+
+local function draw_terminal(groups, su)
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.white)
+  term.clear()
+  term.setCursorPos(1, 1)
+  term.setBackgroundColor(colors.gray)
+  term.write("ENGINES")
+  term.setBackgroundColor(colors.black)
+  term.write("  SU " .. tostring(su))
+  local row = 3
+  for _, group in ipairs(groups) do
+    term.setCursorPos(1, row)
+    term.setBackgroundColor(colors.lightBlue)
+    term.setTextColor(colors.white)
+    term.write(group.type)
+    row = row + 1
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    for _, item in ipairs(group.devices) do
+      term.setCursorPos(1, row)
+      term.write("  " .. item.name .. "  " .. tostring(item.rpm))
+      row = row + 1
+    end
+  end
+end
+
+local function draw(status, outputs, sample)
+  local groups = views.engines(outputs, shaft_rpm())
+  draw_terminal(groups, status.su)
   for name, screen in pairs(screens) do
     local mon = screen.mon
+    local w, h = screen.w, screen.h
+    local page = pages[name] or "Systems"
     mon.setBackgroundColor(colors.black)
     mon.setTextColor(colors.white)
     mon.clear()
+    for row = 1, h - 2 do
+      mon.setBackgroundColor(colors.black)
+      mon.setCursorPos(1, row)
+      mon.write(string.rep(" ", w))
+    end
     mon.setCursorPos(1, 1)
-    local page = pages[name] or "Systems"
+    mon.setBackgroundColor(colors.lightBlue)
+    mon.setTextColor(colors.white)
     mon.write(page)
-    mon.setCursorPos(1, 2)
     if not ready then
+      mon.setBackgroundColor(colors.red)
+      mon.setCursorPos(1, 3)
       mon.write("missing " .. table.concat(missing, " "))
     elseif page == "Flight" then
-      mon.write("mode " .. tostring(status.mode))
+      local figure = views.flight(sample, outputs)
+      mon.setBackgroundColor(colors.black)
+      mon.setTextColor(colors.white)
       mon.setCursorPos(1, 3)
-      mon.write("alt " .. tostring(status.altitude))
+      mon.write(string.format("X %0.2f  Y %0.2f  Z %0.2f", figure.vx, figure.vy, figure.vz))
       mon.setCursorPos(1, 4)
-      mon.write("vs " .. tostring(status.vertical_speed))
-      mon.setCursorPos(1, 5)
-      mon.write("hs " .. tostring(status.horizontal_speed))
-      mon.setCursorPos(1, 6)
-      mon.write("hdg " .. tostring(status.heading))
-    elseif page == "Engines" then
-      local rpm = 0
-      local gauge = peripheral.wrap(cfg.names.speedometer)
-      if gauge ~= nil and gauge.getSpeed ~= nil then
-        rpm = gauge.getSpeed()
+      mon.write(string.format("rot %0.3f  brg %0.2f", figure.rotation, figure.bearing))
+      local col = 1
+      local row = 6
+      for _, thruster in ipairs(figure.thrusters) do
+        mon.setCursorPos(col, row)
+        mon.setBackgroundColor(PALETTE[thruster.color])
+        mon.setTextColor(colors.black)
+        mon.write(" " .. thruster.label .. " ")
+        col = col + #thruster.label + 3
+        if col > w - 8 then
+          col = 1
+          row = row + 2
+        end
       end
-      mon.write("rpm " .. tostring(rpm))
-      mon.setCursorPos(1, 3)
-      mon.write("su " .. tostring(status.su))
-      mon.setCursorPos(1, 4)
-      mon.write("x " .. tostring(outputs.rsc.rsc10))
-      mon.setCursorPos(1, 5)
-      mon.write("elev " .. tostring(outputs.rsc.rsc11))
     elseif page == "Navigation" then
-      mon.write("wp " .. tostring(state.waypoint_x) .. " " .. tostring(state.waypoint_z))
+      local figure = views.navigation({
+        x = sample.x, y = sample.y, z = sample.z,
+        vx = sample.vx, vy = sample.vy, vz = sample.vz,
+        heading = sample.heading,
+        mode = state.mode,
+        waypoint_x = state.waypoint_x,
+        waypoint_z = state.waypoint_z,
+      })
+      mon.setBackgroundColor(colors.black)
+      mon.setTextColor(colors.lime)
       mon.setCursorPos(1, 3)
-      mon.write(state.profile)
+      mon.write(figure.compass)
+      mon.setTextColor(colors.white)
+      mon.setCursorPos(1, 5)
+      mon.write(string.format("alt %0.1f  spd %0.2f", figure.altitude, figure.overall))
+      mon.setCursorPos(1, 6)
+      mon.write(string.format("brg %0.2f  drift %0.2f", figure.bearing, figure.drift))
+      mon.setCursorPos(1, 7)
+      local eta = "n/a"
+      if figure.eta ~= nil then
+        eta = string.format("%0.1fs", figure.eta)
+      end
+      mon.write("eta " .. eta)
+    elseif page == "Engines" then
+      local row = 3
+      for _, group in ipairs(groups) do
+        mon.setCursorPos(1, row)
+        mon.setBackgroundColor(colors.gray)
+        mon.setTextColor(colors.white)
+        mon.write(group.type)
+        row = row + 1
+        mon.setBackgroundColor(colors.black)
+        for _, item in ipairs(group.devices) do
+          mon.setCursorPos(1, row)
+          mon.write(item.name .. " " .. tostring(item.rpm))
+          row = row + 1
+        end
+      end
+      mon.setCursorPos(1, row)
+      mon.setBackgroundColor(colors.brown)
+      mon.write("SU " .. tostring(status.su))
     elseif page == "Emergency" then
-      mon.write("outage " .. tostring(status.outage))
-      mon.setCursorPos(1, 3)
-      mon.write("latch " .. tostring(state.emergency))
+      local diagram = views.emergency(outputs)
+      local col = 1
+      local row = 3
+      for _, part in ipairs(diagram) do
+        mon.setCursorPos(col, row)
+        mon.setBackgroundColor(PALETTE[part.color])
+        mon.setTextColor(colors.black)
+        mon.write(" " .. part.label .. " ")
+        col = col + #part.label + 3
+        if col > w - 10 then
+          col = 1
+          row = row + 2
+        end
+      end
     else
+      mon.setBackgroundColor(colors.black)
+      mon.setCursorPos(1, 3)
       mon.write("missing " .. table.concat(missing, " "))
     end
-    mon.setCursorPos(1, screen.h)
-    local slot = math.floor(screen.w / 4)
-    if slot >= 1 then
-      for i = 1, 4 do
-        mon.setCursorPos((i - 1) * slot + 1, screen.h)
-        mon.write(tostring(i))
-      end
-    end
+    paint_tabs(mon, w, h, page)
   end
 end
 
@@ -156,9 +269,9 @@ while true do
   elseif event == "monitor_touch" then
     local screen = screens[a]
     if screen ~= nil then
-      local target = mfd.hit(screen.w, screen.h, b, c, ordered_names)
-      if target ~= nil then
-        pages = monitors.swap(pages, a, target)
+      local selected = mfd.hit(screen.w, screen.h, b, c)
+      if selected ~= nil then
+        pages[a] = selected
       end
     end
   elseif event == "timer" and a == tick_timer then
@@ -181,7 +294,9 @@ while true do
       config = cfg,
     })
     runtime.apply(outputs, wrap_devices())
-    draw(status, outputs)
+    status.speed = status.horizontal_speed
+    rednet.broadcast(status)
+    draw(status, outputs, sample)
     last_outputs = outputs
     tick_timer = os.startTimer(0.05)
   end

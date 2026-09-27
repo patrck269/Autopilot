@@ -3,6 +3,7 @@ local dir = fs.getDir(program)
 package.path = fs.combine(dir, "src") .. "/?.lua;" .. package.path
 
 local command_ui = require("command_ui")
+local command_status = require("command_status")
 
 local function fill(x, y, w, h, bg)
   term.setBackgroundColor(bg)
@@ -134,24 +135,34 @@ end
 rednet.open("back")
 local state = command_ui.new()
 local status = "Ready"
+local link = nil
 draw(state, status)
 
 while true do
-  local event, key = os.pullEvent()
+  local event, p1, p2 = os.pullEvent()
   local message = nil
-  if event == "key" then
-    local name = keys.getName(key)
+  if event == "rednet_message" then
+    local applied = command_status.apply(p2)
+    if applied ~= nil then
+      link = applied
+      status = applied.line
+      draw(state, status)
+    end
+  elseif event == "key" then
+    local name = keys.getName(p1)
     state, message = command_ui.key(state, name, true)
   elseif event == "key_up" then
-    local name = keys.getName(key)
+    local name = keys.getName(p1)
     state, message = command_ui.key(state, name, false)
   elseif event == "term_resize" then
     draw(state, status)
   end
   if message ~= nil then
     rednet.broadcast(message)
-    status = describe(message, state)
-  elseif state.field ~= nil then
+    if link == nil then
+      status = describe(message, state)
+    end
+  elseif state.field ~= nil and link == nil then
     status = describe(nil, state)
   end
   if event == "key" or event == "key_up" or event == "term_resize" then
