@@ -19,6 +19,10 @@ local climb_rpm, climb_rev = mix.elevation("climb", 80, 200)
 A.eq(climb_rpm, 200, "climb rpm")
 A.eq(climb_rev, false, "climb forward")
 
+local sought_rpm, sought_rev = mix.elevation("climb", 430, 256)
+A.eq(sought_rpm, 430, "climb follows a higher hover setting")
+A.eq(sought_rev, false, "sought climb stays forward")
+
 local down_rpm, down_rev = mix.elevation("reverse", 80, 200)
 A.eq(down_rpm, 80, "reverse uses hover magnitude")
 A.eq(down_rev, true, "reverser on")

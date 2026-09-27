@@ -28,7 +28,11 @@ end
 
 function M.elevation(vertical, hover_rpm, climb_rpm)
   if vertical == "climb" then
-    return climb_rpm, false
+    local rpm = climb_rpm
+    if hover_rpm > rpm then
+      rpm = hover_rpm
+    end
+    return rpm, false
   end
   if vertical == "reverse" or vertical == "descend" then
     return hover_rpm, true

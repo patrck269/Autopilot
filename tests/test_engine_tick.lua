@@ -71,9 +71,12 @@ A.eq(status.outage, "port_bow", "outage status")
 
 ship.pitch_rate = 0.05
 ship.roll_rate = -0.5
+ship.y = 400
+ship.vy = 0
 state = engine_tick.new_state()
 state.mode = "auto"
 state.phase = "hold"
+state.hover_rpm = 64
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
@@ -127,3 +130,21 @@ A.eq(outputs.relays.relay6, true, "auto descend reverses elevation")
 if not (outputs.rsc.rsc11 > 0) then
   error("descend rpm: expected positive rsc11 got " .. tostring(outputs.rsc.rsc11))
 end
+
+ship.pitch_rate = 0
+ship.roll_rate = 0
+ship.pitch = 0
+ship.vx = 0
+ship.vy = 0
+ship.y = 100
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "climb"
+state.hover_rpm = 400
+state, outputs = engine_tick.tick(state, {
+  ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
+})
+if not (outputs.rsc.rsc11 > 400) then
+  error("stuck climb should raise elevation rpm, got " .. tostring(outputs.rsc.rsc11))
+end
+A.eq(outputs.relays.relay6, false, "stuck climb stays forward")

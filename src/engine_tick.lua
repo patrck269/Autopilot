@@ -214,16 +214,27 @@ function M.tick(state, input)
     end
   end
 
-  if state.hover_rpm == 0 then
-    if vertical == "descend" or vertical == "reverse" then
-      state.hover_rpm = cfg.climb_rpm * 0.25
-    elseif vertical == "hold" and math.abs(ship.vy) < 0.05 then
-      state.hover_rpm = cfg.climb_rpm * 0.25
+  if state.hover_rpm == 0 and (vertical == "descend" or vertical == "reverse") then
+    state.hover_rpm = cfg.climb_rpm * 0.25
+  end
+  local target_y = state.altitude
+  if state.mode == "auto" then
+    if vertical == "descend" then
+      target_y = 329
+    else
+      target_y = 400
     end
   end
-  state.hover_rpm = hover.adjust(state.hover_rpm, ship.vy, cfg.hover_gain)
-  if state.hover_rpm < 0 then
-    state.hover_rpm = 0
+  if vertical == "climb" or vertical == "hold" then
+    state.hover_rpm = hover.seek(
+      state.hover_rpm,
+      ship.vy,
+      ship.y,
+      target_y,
+      cfg.hover_gain,
+      cfg.hover_step,
+      cfg.climb_rate
+    )
   end
 
   local rsc10, relay2 = mix.x(vx, ref)
