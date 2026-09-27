@@ -7,6 +7,7 @@ local outage = require("outage")
 local mix = require("mix")
 local diagnostic = require("diagnostic")
 local jobs = require("jobs")
+local pid = require("pid")
 
 local M = {}
 
@@ -40,7 +41,8 @@ function M.new_state()
     altitude_set = false,
     job = nil,
     cancel = false,
-    rpm_memory = {},
+    pid_integral = 0,
+    pid_gains = nil,
     elevation_equilibrium = nil,
     brake_x = nil,
     brake_z = nil,
@@ -164,10 +166,7 @@ local function apply_command(state, command)
     state.waypoint_x = nil
     state.waypoint_z = nil
     state.target_speed = 0
-    local known = hover.recall(state.rpm_memory, command.y)
-    if known ~= nil then
-      state.hover_rpm = known
-    end
+    state.pid_integral = 0
     return
   end
   if command.type == "cancel_jobs" then
@@ -277,7 +276,17 @@ function M.tick(state, input)
       state.brake_x = nil
       state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     end
-    if state.stick.z ~= 0 then
+    if state.stick.z > 0 then
+      state.brake_elev = nil
+      local lift = cfg.hover_equilibrium or 430
+      if state.hover_rpm < lift then
+        state.hover_rpm = lift
+      end
+      state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
+      if state.hover_rpm < lift then
+        state.hover_rpm = lift + cfg.hover_step
+      end
+    elseif state.stick.z < 0 then
       state.brake_elev = nil
       state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
     end
@@ -352,6 +361,9 @@ function M.tick(state, input)
   local elev_reverse = false
   if stop_y then
     y_hold, state.brake_elev, elev_reverse = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
+    if math.abs(ship.vy) < 0.05 and elev_reverse ~= true and y_hold < rest_elevation() then
+      y_hold = rest_elevation()
+    end
     if state.brake_elev == nil and math.abs(ship.vy) < 0.05 then
       state.hover_rpm = y_hold
     end
@@ -364,47 +376,23 @@ function M.tick(state, input)
       state.stop_distance = distance
     end
   end
-  local remembered = nil
-  if state.job == "altitude" then
-    remembered = hover.recall(state.rpm_memory, state.altitude)
+  if state.pid_gains == nil then
+    state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
   end
-  local holding_known = remembered ~= nil and math.abs(ship.y - state.altitude) <= 0.5 and math.abs(ship.vy) < 0.05
-  if holding_known then
-    state.hover_rpm = remembered
-  elseif not stop_y and (state.mode ~= "manual" or state.job == "altitude") then
-    if ship.y > target_y + cfg.altitude_deadzone then
-      local equilibrium = state.elevation_equilibrium
-      if equilibrium == nil or equilibrium <= 0 then
-        equilibrium = cfg.hover_equilibrium
-      end
-      state.hover_rpm = config.clamp_rpm(hover.descend_rpm(
-        state.hover_rpm,
-        ship.vy,
-        ship.y,
-        target_y,
-        cfg.altitude_deadzone,
-        ship.dt,
-        equilibrium
-      ))
-      state.hover_rpm = hover.limit_elevation_rpm(state.hover_rpm, ship.vy, equilibrium, ship.dt)
-    elseif vertical == "climb" or vertical == "hold" or vertical == "descend" then
-      local equilibrium = state.elevation_equilibrium
-      if equilibrium == nil or equilibrium <= 0 then
-        equilibrium = cfg.hover_equilibrium
-      end
-      state.hover_rpm = config.clamp_rpm(hover.seek(
-        state.hover_rpm,
-        ship.vy,
-        ship.y,
-        target_y,
-        cfg.hover_gain,
-        cfg.hover_step,
-        cfg.altitude_deadzone,
-        cfg.altitude_approach,
-        cfg.hover_gain_near,
-        cfg.hover_step_near
-      ))
-      state.hover_rpm = hover.limit_elevation_rpm(state.hover_rpm, ship.vy, equilibrium, ship.dt)
+  local track_altitude = (not stop_y) and (state.job == "altitude" or (state.mode == "auto" and not manual_fly))
+  if track_altitude then
+    local rpm, integral, rev = pid.command(
+      state.pid_gains,
+      state.pid_integral,
+      ship.y,
+      target_y,
+      ship.vy,
+      ship.dt
+    )
+    state.pid_integral = integral
+    state.hover_rpm = rpm
+    if rev then
+      elev_reverse = true
     end
   end
 
@@ -420,27 +408,28 @@ function M.tick(state, input)
   local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
   if stop_y then
     rsc11 = y_hold
-  elseif state.job == "altitude" then
-    local arrest_rpm, arrest_rev = jobs.arrest_climb(ship.vy, target_y - ship.y)
-    if arrest_rpm ~= nil then
-      rsc11 = arrest_rpm
-      elev_reverse = arrest_rev == true
-    end
   end
   outputs.rsc.rsc11 = rsc11
   outputs.relays.relay6 = false
 
-  local yaw = 0
   local pitch_err = 0
   local roll_err = 0
-  if horiz > 20 or state.mode == "semi" or state.mode == "auto" then
-    yaw = wrap(state.bearing - ship.heading)
-  end
   if horiz > 20 then
     pitch_err = ship.pitch
     roll_err = ship.roll
   end
-  local rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, yaw, cfg.side_gain)
+  local rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, 0, cfg.side_gain)
+  local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
+  if not (state.mode == "manual" and state.stick.y ~= 0) then
+    local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
+    if yaw_err > 0 then
+      rsc6 = spin
+      rsc7 = spin
+    elseif yaw_err < 0 then
+      rsc8 = spin
+      rsc9 = spin
+    end
+  end
   if state.mode == "manual" and state.stick.y ~= 0 then
     local side_rpm = manual.rcs_rpm(math.abs(state.stick.y), cfg.ship_mass)
     rsc6, rsc7, rsc8, rsc9 = 0, 0, 0, 0
@@ -459,10 +448,6 @@ function M.tick(state, input)
   if state.brake_elev == nil and math.abs(ship.vy) < 0.05 and math.abs(ship.y - target_y) <= cfg.altitude_deadzone and state.hover_rpm > 0 then
     state.elevation_equilibrium = state.hover_rpm
   end
-  if state.job == "altitude" and state.brake_elev == nil then
-    hover.remember(state.rpm_memory, state.altitude, state.hover_rpm, ship.y, ship.vy)
-  end
-
   local kind, which = outage.classify(ship.pitch_rate, ship.roll_rate, cfg.outage_threshold)
   local outage_name = nil
   local lift = 0

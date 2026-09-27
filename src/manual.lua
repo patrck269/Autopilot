@@ -41,6 +41,17 @@ function M.x_rpm(current_rpm, current_speed, target_speed, step, hold)
   return config.clamp_rpm(next_rpm)
 end
 
+function M.bearing_rpm(error_rad, mass)
+  if error_rad == nil or math.abs(error_rad) < 0.02 then
+    return 0
+  end
+  local portion = math.abs(error_rad) / math.pi
+  if portion > 1 then
+    portion = 1
+  end
+  return M.rcs_rpm(portion, mass)
+end
+
 function M.rcs_rpm(stick, mass)
   if stick == 0 then
     return 0

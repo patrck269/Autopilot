@@ -2,6 +2,7 @@ package.path = "src/?.lua;" .. package.path
 local A = dofile("tests/assert.lua")
 local engine_tick = require("engine_tick")
 local config = require("config")
+local pid = require("pid")
 
 local cfg = config.default()
 local ship = {
@@ -82,7 +83,8 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(outputs.rsc.rsc3, 64, "port bow thruster replaces lost props")
 A.eq(outputs.rsc.rsc5, 64, "port stern thruster replaces lost props")
-A.eq(outputs.rsc.rsc11, 32, "live props scaled to 0.5")
+local held_rpm = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, ship.y, 400, ship.vy, ship.dt)
+A.near(outputs.rsc.rsc11, held_rpm * 0.5, 1e-4, "live props scaled to 0.5")
 A.eq(outputs.relays.relay5, false, "side balance does not cut all")
 
 state.balance_time = 5
@@ -187,7 +189,7 @@ state.phase = "track"
 state.waypoint_x = 800
 state.waypoint_z = 900
 state.bearing = 1.2
-state.rpm_memory[250] = 455
+state.rpm_memory = { [250] = 455 }
 ship.y = 250
 ship.vy = 0
 ship.vx = 0
@@ -199,7 +201,9 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = false,
   config = cfg,
 })
-A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
+if state.hover_rpm == 455 or outputs.rsc.rsc11 == 455 then
+  error("altitude hold reused a remembered rpm")
+end
 
 local jobs = require("jobs")
 local hover = require("hover")
@@ -305,49 +309,14 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(outputs.rsc.rsc11, 430, "steady altitude inside the band holds rpm")
 A.eq(outputs.relays.relay6, false, "steady altitude keeps the reverser off")
-A.eq(state.rpm_memory[400], 430, "arrived rpm is stored for the set altitude")
-A.eq(state.rpm_memory[401], nil, "a neighbor altitude is not stored")
+local calibrated = pid.calibrate(cfg.hover_equilibrium, 0.05)
+A.eq(state.pid_gains.kp, calibrated.kp, "hold uses the calibrated kp")
+A.eq(state.pid_gains.ki, calibrated.ki, "hold uses the calibrated ki")
+A.eq(state.pid_gains.kd, calibrated.kd, "hold uses the calibrated kd")
 
-ship.y = 406
-ship.vy = 0
-state = engine_tick.new_state()
-state.mode = "manual"
-state.job = "altitude"
-state.altitude = 400
-state.altitude_set = true
-state.hover_rpm = 420
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-A.eq(state.rpm_memory[400], nil, "deadzone is not arrival")
-A.eq(state.rpm_memory[406], nil, "the passing altitude is not remembered")
-
-ship.y = 400
-ship.vy = 1
-state = engine_tick.new_state()
-state.mode = "manual"
-state.job = "altitude"
-state.altitude = 400
-state.altitude_set = true
-state.hover_rpm = 450
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = nil,
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-A.eq(state.rpm_memory[400], nil, "moving through the altitude does not store rpm")
-
-state.rpm_memory[400] = 430
+state.rpm_memory = { [400] = 900 }
 state.hover_rpm = 100
-ship.y = 400
+ship.y = 180
 ship.vy = 0
 state, outputs = engine_tick.tick(state, {
   ship = ship,
@@ -357,21 +326,75 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = false,
   config = cfg,
 })
-A.eq(state.hover_rpm, 430, "the exact altitude reuses its rpm")
-A.eq(outputs.rsc.rsc11, 430, "the stored rpm is commanded while holding")
-ship.y = 402
-ship.vy = 0
-state.hover_rpm = 100
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = { type = "set_altitude", y = 402 },
-  su = 1,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-})
-A.eq(state.altitude, 402, "402 is its own altitude")
-A.eq(state.hover_rpm, 100, "402 does not reuse the rpm from 400")
+if state.hover_rpm == 900 or outputs.rsc.rsc11 == 900 then
+  error("a new altitude restored a stored rpm")
+end
+A.eq(state.altitude, 400, "new altitude is applied")
+if math.abs(outputs.rsc.rsc11 - 430) < 5 then
+  error("altitude hold left the hover rpm in place, got " .. tostring(outputs.rsc.rsc11))
+end
+
+local function fly_band(start_y, target, steps, label)
+  ship.x = 0
+  ship.y = start_y
+  ship.z = 0
+  ship.vx = 0
+  ship.vy = 0
+  ship.vz = 0
+  ship.heading = 0
+  ship.pitch = 0
+  ship.roll = 0
+  ship.pitch_rate = 0
+  ship.roll_rate = 0
+  ship.dt = 0.05
+  state = engine_tick.new_state()
+  state.mode = "manual"
+  local moved = false
+  local entered = false
+  local gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
+  for i = 1, steps do
+    local command = nil
+    if i == 1 then
+      command = { type = "set_altitude", y = target }
+    end
+    local stepped
+    state, stepped = engine_tick.tick(state, {
+      ship = ship,
+      command = command,
+      su = 1,
+      ready = true,
+      stick_fresh = false,
+      config = cfg,
+      current_elevation_rpm = 430,
+    })
+    if math.abs(stepped.rsc.rsc11 - cfg.hover_equilibrium) > 5 then
+      moved = true
+    end
+    local net = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+    ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
+    ship.vy = ship.vy + net * 0.05
+    local inside = ship.y >= target - cfg.altitude_deadzone and ship.y <= target + cfg.altitude_deadzone
+    if inside then
+      entered = true
+    elseif entered then
+      error(label .. " left the deadzone at " .. tostring(ship.y))
+    end
+  end
+  if not moved then
+    error(label .. " never moved elevation rpm off hover")
+  end
+  if not entered then
+    error(label .. " never entered the deadzone, y " .. tostring(ship.y))
+  end
+  if ship.y < target - cfg.altitude_deadzone or ship.y > target + cfg.altitude_deadzone then
+    error(label .. " finished outside the band at " .. tostring(ship.y))
+  end
+  A.eq(state.pid_gains.kp, gains.kp, label .. " uses calibrated kp")
+  A.eq(state.pid_gains.ki, gains.ki, label .. " uses calibrated ki")
+  A.eq(state.pid_gains.kd, gains.kd, label .. " uses calibrated kd")
+end
+fly_band(100, 400, 4000, "climb")
+fly_band(450, 400, 800, "descent")
 
 local latched, capture = jobs.hold_stop(nil, 8, cfg.ship_mass, 0, false)
 local again, capture_again = jobs.hold_stop(capture, 4, cfg.ship_mass, 0, false)
@@ -581,7 +604,7 @@ local function climb_step(command)
   local side = side_accel(stepped, cfg.ship_mass)
   ship.z, ship.vz = coast(ship.z, ship.vz, side, 0.05)
 end
-local shell = hover.desired_vertical(100, 400, cfg.altitude_deadzone, cfg.altitude_approach)
+local shell = pid.calibrate(cfg.hover_equilibrium, 0.05).max_rate * 0.9
 climb_step({ type = "set_altitude", y = 400 })
 A.eq(state.mode, "idle", "altitude climb does not change mode")
 A.eq(state.job, "altitude", "altitude climb is the active job")
@@ -627,9 +650,13 @@ state, outputs = engine_tick.tick(state, {
   ready = true,
   stick_fresh = true,
   config = cfg,
+  current_elevation_rpm = 430,
 })
 if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
   error("full sideways command rpm out of range: " .. tostring(outputs.rsc.rsc6))
+end
+if outputs.rsc.rsc11 < 400 then
+  error("sideways command cut the elevation props: " .. tostring(outputs.rsc.rsc11))
 end
 
 state = engine_tick.new_state()
@@ -640,11 +667,45 @@ state, outputs = engine_tick.tick(state, {
   ready = true,
   stick_fresh = true,
   config = cfg,
+  current_elevation_rpm = 430,
 })
 if outputs.rsc.rsc2 < 1000 or outputs.rsc.rsc2 > cfg.max_rpm then
   error("full vertical command rpm out of range: " .. tostring(outputs.rsc.rsc2))
 end
+if outputs.rsc.rsc11 <= cfg.hover_equilibrium then
+  error("manual up did not raise elevation rpm: " .. tostring(outputs.rsc.rsc11))
+end
 A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")
+
+ship.heading = 0
+ship.vy = 0
+ship.y = 120
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_bearing", bearing = math.pi },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
+  error("bearing rcs out of range: " .. tostring(outputs.rsc.rsc6))
+end
+if outputs.rsc.rsc7 < 1000 or outputs.rsc.rsc7 > cfg.max_rpm then
+  error("bearing rcs pair out of range: " .. tostring(outputs.rsc.rsc7))
+end
+if outputs.rsc.rsc11 < 400 then
+  error("bearing command cut the elevation props: " .. tostring(outputs.rsc.rsc11))
+end
+local plus = jobs.thrust(outputs.rsc.rsc6, cfg.ship_mass) + jobs.thrust(outputs.rsc.rsc7, cfg.ship_mass)
+local minus = jobs.thrust(outputs.rsc.rsc8, cfg.ship_mass) + jobs.thrust(outputs.rsc.rsc9, cfg.ship_mass)
+local alpha = (plus - minus) * 8 / (cfg.ship_mass * 400)
+local turned = 0.5 * alpha * 0.05 * 0.05
+if turned <= 0 then
+  error("heading did not turn toward the bearing")
+end
 
 ship.vx = 0
 ship.vy = 0

@@ -105,8 +105,18 @@ local function paint_tabs(mon, w, h, page)
     if #label > control.w then
       label = string.sub(label, 1, control.w)
     end
-    mon.setCursorPos(control.x, control.y)
-    mon.write(label .. string.rep(" ", control.w - #label))
+    local pad = control.w - #label
+    local left = math.floor(pad / 2)
+    local line = string.rep(" ", left) .. label .. string.rep(" ", pad - left)
+    local tall = control.h or 1
+    for dy = 0, tall - 1 do
+      mon.setCursorPos(control.x, control.y + dy)
+      if dy == 0 then
+        mon.write(line)
+      else
+        mon.write(string.rep(" ", control.w))
+      end
+    end
   end
 end
 

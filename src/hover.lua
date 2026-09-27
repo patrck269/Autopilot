@@ -6,32 +6,6 @@ function M.use_reverser(failed_prop)
   return failed_prop == true
 end
 
-local ARRIVED = 0.5
-
-function M.remember(memory, set_altitude, rpm, ship_altitude, vertical_speed)
-  if type(memory) ~= "table" or set_altitude == nil or rpm == nil or rpm <= 0 then
-    return false
-  end
-  if ship_altitude == nil or vertical_speed == nil then
-    return false
-  end
-  if math.abs(vertical_speed) >= 0.05 then
-    return false
-  end
-  if math.abs(ship_altitude - set_altitude) > ARRIVED then
-    return false
-  end
-  memory[set_altitude] = rpm
-  return true
-end
-
-function M.recall(memory, altitude)
-  if type(memory) ~= "table" or altitude == nil then
-    return nil
-  end
-  return memory[altitude]
-end
-
 local function rpm_for_accel(acceleration, equilibrium)
   local powered = 1 + acceleration / 10
   if powered < 0.05 then
