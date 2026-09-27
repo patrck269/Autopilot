@@ -204,12 +204,12 @@ A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
 local jobs = require("jobs")
 
 local function stop_from(speed, rpm, mass)
-  local accel = jobs.thrust(rpm) / mass
+  local accel = jobs.thrust(rpm, mass) / mass
   return (speed * speed) / (2 * accel)
 end
 
-ship.vx = 0.4
-ship.vz = 0.3
+ship.vx = 8
+ship.vz = 5
 ship.vy = 0
 ship.y = 180
 ship.x = 10
@@ -236,35 +236,18 @@ A.eq(state.waypoint_z, nil, "cancel clears waypoint z")
 A.eq(outputs.rsc.rsc10, jobs.brake_rpm(ship.vx, cfg.ship_mass), "x brake matches the shipped curve")
 A.eq(outputs.rsc.rsc7, -jobs.brake_rpm(ship.vz, cfg.ship_mass), "z brake drives the other horizontal axis")
 local distance_x = stop_from(ship.vx, outputs.rsc.rsc10, cfg.ship_mass)
-local distance_z = stop_from(ship.vz, jobs.brake_rpm(ship.vz, cfg.ship_mass), cfg.ship_mass)
+local distance_z = stop_from(ship.vz, outputs.rsc.rsc7, cfg.ship_mass)
 if distance_x > 1 then
   error("x stop should be within 1 m, got " .. tostring(distance_x))
 end
 if distance_z > 1 then
   error("z stop should be within 1 m, got " .. tostring(distance_z))
 end
-if math.abs(outputs.rsc.rsc10) > cfg.max_rpm or math.abs(outputs.rsc.rsc7) > cfg.max_rpm then
-  error("cancel brake exceeded the server rpm cap")
+if math.abs(outputs.rsc.rsc10) >= cfg.max_rpm or math.abs(outputs.rsc.rsc7) >= cfg.max_rpm then
+  error("cancel brake sat on the server cap instead of the 1 m thrust")
 end
-
-ship.vx = 8
-ship.vz = 0
-state = engine_tick.new_state()
-state.mode = "auto"
-state.waypoint_x = 800
-state.waypoint_z = 900
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = { type = "cancel_jobs" },
-  su = 4,
-  ready = true,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
-A.eq(outputs.rsc.rsc10, -cfg.max_rpm, "fast cancel uses the server cap, not a few rpm")
-if math.abs(outputs.rsc.rsc10) > cfg.max_rpm then
-  error("fast cancel rpm over the server cap")
+if math.abs(outputs.rsc.rsc10) <= math.abs(ship.vx) then
+  error("cancel brake is no stronger than the old speed-as-rpm command")
 end
 
 ship.vx = 4
