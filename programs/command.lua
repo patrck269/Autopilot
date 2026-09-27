@@ -70,13 +70,21 @@ local function describe(message, state)
   return message.type
 end
 
-local function draw(state, status)
+local function draw(state, status, link)
   local width, height = term.getSize()
   term.setBackgroundColor(colors.black)
   term.clear()
 
   fill(1, 1, width, 1, colors.lightBlue)
   text(2, 1, "SHIP COMMAND", colors.white, colors.lightBlue)
+  if link ~= nil then
+    fill(1, 2, width, 1, colors.green)
+    local live = "mode " .. tostring(link.mode)
+      .. " alt " .. tostring(link.altitude)
+      .. " spd " .. tostring(link.speed)
+      .. " SU " .. tostring(link.su)
+    text(2, 2, live, colors.black, colors.green, width - 2)
+  end
 
   local leftW = math.floor(width * 0.55)
   local rightX = leftW + 2
@@ -136,7 +144,7 @@ rednet.open("back")
 local state = command_ui.new()
 local status = "Ready"
 local link = nil
-draw(state, status)
+draw(state, status, link)
 
 while true do
   local event, p1, p2 = os.pullEvent()
@@ -146,7 +154,7 @@ while true do
     if applied ~= nil then
       link = applied
       status = applied.line
-      draw(state, status)
+      draw(state, status, link)
     end
   elseif event == "key" then
     local name = keys.getName(p1)
@@ -155,7 +163,7 @@ while true do
     local name = keys.getName(p1)
     state, message = command_ui.key(state, name, false)
   elseif event == "term_resize" then
-    draw(state, status)
+    draw(state, status, link)
   end
   if message ~= nil then
     rednet.broadcast(message)
@@ -166,6 +174,6 @@ while true do
     status = describe(nil, state)
   end
   if event == "key" or event == "key_up" or event == "term_resize" then
-    draw(state, status)
+    draw(state, status, link)
   end
 end

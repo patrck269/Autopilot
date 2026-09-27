@@ -138,7 +138,7 @@ local function draw_terminal(groups, su)
     term.setTextColor(colors.white)
     for _, item in ipairs(group.devices) do
       term.setCursorPos(1, row)
-      term.write("  " .. item.name .. "  " .. tostring(item.rpm))
+      term.write("  " .. item.name .. " RPM " .. tostring(item.rpm))
       row = row + 1
     end
   end
