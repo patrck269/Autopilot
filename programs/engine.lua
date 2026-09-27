@@ -118,7 +118,7 @@ local function shaft_rpm()
   return 0
 end
 
-local function draw_terminal(groups, su)
+local function draw_terminal(groups, stress)
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.white)
   term.clear()
@@ -126,7 +126,8 @@ local function draw_terminal(groups, su)
   term.setBackgroundColor(colors.gray)
   term.write("ENGINES")
   term.setBackgroundColor(colors.black)
-  term.write("  SU " .. tostring(su))
+  term.write("  SU consumed " .. tostring(stress.consumed))
+  term.write("  SU remaining " .. tostring(stress.remaining))
   local row = 3
   for _, group in ipairs(groups) do
     term.setCursorPos(1, row)
@@ -144,9 +145,9 @@ local function draw_terminal(groups, su)
   end
 end
 
-local function draw(status, outputs, sample)
+local function draw(status, outputs, sample, stress)
   local groups = views.engines(outputs, shaft_rpm())
-  draw_terminal(groups, status.su)
+  draw_terminal(groups, stress)
   for name, screen in pairs(screens) do
     local mon = screen.mon
     local w, h = screen.w, screen.h
@@ -174,7 +175,7 @@ local function draw(status, outputs, sample)
       mon.setCursorPos(1, 3)
       mon.write(string.format("X %0.2f  Y %0.2f  Z %0.2f", figure.vx, figure.vy, figure.vz))
       mon.setCursorPos(1, 4)
-      mon.write(string.format("rot %0.3f  brg %0.2f", figure.rotation, figure.bearing))
+      mon.write(string.format("rotation %0.3f  Bearing %0.2f", figure.rotation, figure.bearing))
       local col = 1
       local row = 6
       for _, thruster in ipairs(figure.thrusters) do
@@ -205,7 +206,7 @@ local function draw(status, outputs, sample)
       mon.setCursorPos(1, 5)
       mon.write(string.format("alt %0.1f  spd %0.2f", figure.altitude, figure.overall))
       mon.setCursorPos(1, 6)
-      mon.write(string.format("brg %0.2f  drift %0.2f", figure.bearing, figure.drift))
+      mon.write(string.format("Bearing %0.2f  drift %0.2f", figure.bearing, figure.drift))
       mon.setCursorPos(1, 7)
       local eta = "n/a"
       if figure.eta ~= nil then
@@ -229,7 +230,20 @@ local function draw(status, outputs, sample)
       end
       mon.setCursorPos(1, row)
       mon.setBackgroundColor(colors.brown)
-      mon.write("SU " .. tostring(status.su))
+      mon.write("SU consumed " .. tostring(stress.consumed))
+      row = row + 1
+      mon.setCursorPos(1, row)
+      mon.write("SU remaining " .. tostring(stress.remaining))
+      row = row + 1
+      mon.setCursorPos(1, row)
+      mon.setBackgroundColor(colors.black)
+      mon.write("X axis propellers " .. string.format("%0.1f", stress.x_axis_propellers))
+      row = row + 1
+      mon.setCursorPos(1, row)
+      mon.write("Z axis propellers " .. string.format("%0.1f", stress.z_axis_propellers))
+      row = row + 1
+      mon.setCursorPos(1, row)
+      mon.write("RCS " .. string.format("%0.1f", stress.rcs))
     elseif page == "Emergency" then
       local diagram = views.emergency(outputs)
       local top = 3
@@ -284,10 +298,19 @@ while true do
     end
   elseif event == "timer" and a == tick_timer then
     local sample = collect_ship()
-    local su = 0
-    local stress = peripheral.wrap(cfg.names.stressometer)
-    if stress ~= nil and stress.getStress ~= nil then
-      su = stress.getStress()
+    local consumed = 0
+    local capacity = 0
+    local stress_gauge = peripheral.wrap(cfg.names.stressometer)
+    if stress_gauge ~= nil and stress_gauge.getStress ~= nil then
+      consumed = stress_gauge.getStress()
+    end
+    if stress_gauge ~= nil and stress_gauge.getStressCapacity ~= nil then
+      capacity = stress_gauge.getStressCapacity()
+    end
+    local elevation_rpm = nil
+    local elevation = peripheral.wrap(cfg.names.rsc11)
+    if elevation ~= nil and elevation.getTargetSpeed ~= nil then
+      elevation_rpm = elevation.getTargetSpeed()
     end
     local command = pending
     pending = nil
@@ -296,15 +319,22 @@ while true do
     state, outputs, status = engine_tick.tick(state, {
       ship = sample,
       command = command,
-      su = su,
+      su = consumed,
       ready = ready,
       stick_fresh = command ~= nil and command.type == "stick",
       config = cfg,
+      current_elevation_rpm = elevation_rpm,
     })
+    local stress = views.stress(consumed, capacity, outputs)
+    status.su = stress.consumed
+    status.su_remaining = stress.remaining
+    status.su_x_axis_propellers = stress.x_axis_propellers
+    status.su_z_axis_propellers = stress.z_axis_propellers
+    status.su_rcs = stress.rcs
     runtime.apply(outputs, wrap_devices())
     status.speed = status.horizontal_speed
     rednet.broadcast(status)
-    draw(status, outputs, sample)
+    draw(status, outputs, sample, stress)
     last_outputs = outputs
     tick_timer = os.startTimer(0.05)
   end

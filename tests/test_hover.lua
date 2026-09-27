@@ -23,3 +23,22 @@ local coasting = hover.seek(500, 4, 396, 400, 2, 10, 8, 20, 0.2, 1)
 if not (coasting < 500 and 500 - coasting < 1) then
   error("deadzone damping should be under 1 rpm, got " .. tostring(500 - coasting))
 end
+
+local memory = {}
+hover.remember(memory, 100.2, 430)
+A.eq(hover.recall(memory, 100), 430, "recall the altitude just flown")
+A.eq(hover.recall(memory, 101.4), 430, "recall a nearby altitude")
+
+local descent = hover.simulate_descent(450, 400, 8, 430, 0.05)
+A.eq(descent.reverser, false, "reverser stays off")
+if not (descent.lowest_rpm < 430) then
+  error("elevation rpm should fall, got " .. tostring(descent.lowest_rpm))
+end
+if not descent.inside then
+  error("craft should be inside the deadzone, altitude " .. tostring(descent.altitude))
+end
+if descent.min_altitude < 400 - 8 then
+  error("descent crossed the far side at " .. tostring(descent.min_altitude))
+end
+A.eq(hover.use_reverser(false), false, "normal flight keeps the reverser off")
+A.eq(hover.use_reverser(true), true, "failed prop may use the reverser")

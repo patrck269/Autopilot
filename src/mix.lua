@@ -35,7 +35,7 @@ function M.elevation(vertical, hover_rpm, climb_rpm)
     return rpm, false
   end
   if vertical == "reverse" or vertical == "descend" then
-    return hover_rpm, true
+    return hover_rpm, false
   end
   return hover_rpm, false
 end

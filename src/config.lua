@@ -12,6 +12,8 @@ function M.default()
     outage_threshold = 0.2,
     outage_fail_seconds = 5,
     hover_gain = 2,
+    hover_equilibrium = 430,
+    ship_mass = 200000000,
     side_gain = 10,
     up_gain = 5,
     balance_rpm = 64,

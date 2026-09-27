@@ -25,11 +25,11 @@ A.eq(sought_rev, false, "sought climb stays forward")
 
 local down_rpm, down_rev = mix.elevation("reverse", 80, 200)
 A.eq(down_rpm, 80, "reverse uses hover magnitude")
-A.eq(down_rev, true, "reverser on")
+A.eq(down_rev, false, "normal reverse does not use the reverser")
 
 local desc_rpm, desc_rev = mix.elevation("descend", 80, 200)
 A.eq(desc_rpm, 80, "descend rpm")
-A.eq(desc_rev, true, "descend reverser")
+A.eq(desc_rev, false, "descend does not use the reverser")
 
 local s6, s7, s8, s9 = mix.sides(1, 0, 10)
 A.eq(s6, 10, "port bow translates starboard")

@@ -33,7 +33,7 @@ function M.validate(msg)
   if kind == "return_to_user" and is_number(msg.x) and is_number(msg.z) then
     return msg
   end
-  if kind == "emergency" or kind == "clear_emergency" or kind == "diagnostic_exit" then
+  if kind == "emergency" or kind == "clear_emergency" or kind == "diagnostic_exit" or kind == "cancel_jobs" then
     return msg
   end
   if kind == "diagnostic_enter" and type(msg.hover) == "boolean" then

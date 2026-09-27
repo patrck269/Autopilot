@@ -5,8 +5,16 @@ local function hypot(a, b)
 end
 
 function M.navigation(sample)
-  local dx = sample.waypoint_x - sample.x
-  local dz = sample.waypoint_z - sample.z
+  local wx = sample.waypoint_x
+  if wx == nil then
+    wx = sample.x
+  end
+  local wz = sample.waypoint_z
+  if wz == nil then
+    wz = sample.z
+  end
+  local dx = wx - sample.x
+  local dz = wz - sample.z
   local distance = hypot(dx, dz)
   local overall = math.sqrt(sample.vx * sample.vx + sample.vy * sample.vy + sample.vz * sample.vz)
   local horizontal = hypot(sample.vx, sample.vz)
@@ -23,10 +31,19 @@ function M.navigation(sample)
     overall = overall,
     altitude = sample.y,
     drift = drift,
-    bearing = sample.heading,
+    bearing = M.wrap_bearing(sample.heading),
     distance = distance,
     compass = M.compass(sample.heading, 16),
   }
+end
+
+function M.wrap_bearing(heading)
+  local circle = math.pi * 2
+  local bearing = heading % circle
+  if bearing < 0 then
+    bearing = bearing + circle
+  end
+  return bearing
 end
 
 function M.compass(heading, width)
@@ -80,7 +97,7 @@ function M.flight(sample, outputs)
     vy = sample.vy,
     vz = sample.vz,
     rotation = math.sqrt(pitch_rate * pitch_rate + roll_rate * roll_rate + yaw_rate * yaw_rate),
-    bearing = sample.heading,
+    bearing = M.wrap_bearing(sample.heading),
     thrusters = thrusters,
   }
 end
@@ -93,20 +110,15 @@ function M.engines(outputs, shaft_rpm)
   local rsc = outputs.rsc
   return {
     { type = "Main shaft", devices = { device("Speedometer", shaft_rpm or 0) } },
-    { type = "X propellers", devices = { device("RSC 10", rsc.rsc10) } },
-    { type = "Elevation propellers", devices = { device("RSC 11", rsc.rsc11) } },
+    { type = "X axis propellers", devices = { device("RSC 10", rsc.rsc10) } },
+    { type = "Z axis propellers", devices = { device("RSC 11", rsc.rsc11) } },
     {
-      type = "Upward thrusters",
+      type = "RCS",
       devices = {
         device("RSC 2", rsc.rsc2),
         device("RSC 3", rsc.rsc3),
         device("RSC 4", rsc.rsc4),
         device("RSC 5", rsc.rsc5),
-      },
-    },
-    {
-      type = "Side thrusters",
-      devices = {
         device("RSC 6", rsc.rsc6),
         device("RSC 7", rsc.rsc7),
         device("RSC 8", rsc.rsc8),
@@ -131,6 +143,30 @@ local EMERGENCY_PARTS = {
   { label = "SA side", rpm = "rsc7", x = 1, y = 0.65 },
   { label = "X prop", rpm = "rsc10", cut = "relay3", x = 0.5, y = 0.5 },
 }
+
+function M.stress(consumed, capacity, outputs)
+  local rsc = outputs.rsc or {}
+  local x = math.abs(rsc.rsc10 or 0)
+  local z = math.abs(rsc.rsc11 or 0)
+  local rcs = 0
+  for _, name in ipairs({ "rsc2", "rsc3", "rsc4", "rsc5", "rsc6", "rsc7", "rsc8", "rsc9" }) do
+    rcs = rcs + math.abs(rsc[name] or 0)
+  end
+  local total = x + z + rcs
+  local function share(part)
+    if total <= 0 then
+      return 0
+    end
+    return consumed * part / total
+  end
+  return {
+    consumed = consumed,
+    remaining = capacity - consumed,
+    x_axis_propellers = share(x),
+    z_axis_propellers = share(z),
+    rcs = share(rcs),
+  }
+end
 
 function M.emergency(outputs)
   local parts = {}

@@ -33,3 +33,26 @@ state, msg = command_ui.key(state, "numPad5", true)
 state, msg = command_ui.key(state, "numPadEnter", true)
 A.eq(msg.type, "set_speed", "numpad speed")
 A.eq(msg.speed, -5, "numpad value")
+
+local function press_mode(name, mode)
+  local ui = command_ui.new()
+  local pressed
+  ui, pressed = command_ui.key(ui, name, true)
+  A.eq(pressed.type, "set_mode", name .. " down")
+  A.eq(pressed.mode, mode, name .. " mode")
+  A.eq(ui.mode, mode, name .. " stays selected")
+  local released
+  ui, released = command_ui.key(ui, name, false)
+  A.eq(released, nil, name .. " release does not clear")
+  A.eq(ui.mode, mode, name .. " still selected")
+end
+
+press_mode("m", "manual")
+press_mode("s", "semi")
+press_mode("u", "auto")
+
+state = command_ui.new()
+state, msg = command_ui.key(state, "k", true)
+A.eq(msg.type, "cancel_jobs", "cancel jobs")
+state, msg = command_ui.key(state, "k", false)
+A.eq(msg, nil, "cancel release")

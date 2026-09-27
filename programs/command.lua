@@ -67,6 +67,9 @@ local function describe(message, state)
   if message.type == "clear_emergency" then
     return "Emergency cleared"
   end
+  if message.type == "cancel_jobs" then
+    return "Cancel jobs"
+  end
   return message.type
 end
 
@@ -82,7 +85,10 @@ local function draw(state, status, link)
     local live = "mode " .. tostring(link.mode)
       .. " alt " .. tostring(link.altitude)
       .. " spd " .. tostring(link.speed)
-      .. " SU " .. tostring(link.su)
+      .. " SU consumed " .. tostring(link.su)
+    if link.su_remaining ~= nil then
+      live = live .. " SU remaining " .. tostring(link.su_remaining)
+    end
     text(2, 2, live, colors.black, colors.green, width - 2)
   end
 
@@ -105,6 +111,7 @@ local function draw(state, status, link)
   text(rightX + 1, 5, "S  Semi-automatic", colors.lime, colors.blue, rightText)
   text(rightX + 1, 6, "U  Automatic", colors.orange, colors.blue, rightText)
   text(rightX + 1, 7, "W  Cruise / warp", colors.white, colors.blue, rightText)
+  text(rightX + 1, 8, "K  Cancel jobs", colors.white, colors.blue, rightText)
 
   fill(1, 10, leftW, 6, colors.lightGray)
   text(2, 10, "ENTER A NUMBER", colors.black, colors.lightGray, leftText)

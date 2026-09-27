@@ -24,7 +24,7 @@ state, outputs, status = engine_tick.tick(state, {
   su = 12, ready = true, stick_fresh = true, config = cfg,
 })
 A.eq(state.mode, "manual", "stick selects manual")
-A.eq(outputs.rsc.rsc10, 3, "forward 3 m/s as rpm at gain 1")
+A.eq(outputs.rsc.rsc10, cfg.hover_step, "x rpm rises toward the forward target")
 A.eq(status.su, 12, "su status")
 A.eq(status.mode, "manual", "status mode")
 
@@ -126,7 +126,7 @@ state.waypoint_z = 0
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
-A.eq(outputs.relays.relay6, true, "auto descend reverses elevation")
+A.eq(outputs.relays.relay6, false, "auto descend does not reverse elevation")
 if not (outputs.rsc.rsc11 > 0) then
   error("descend rpm: expected positive rsc11 got " .. tostring(outputs.rsc.rsc11))
 end
@@ -148,3 +148,150 @@ if not (outputs.rsc.rsc11 > 400) then
   error("stuck climb should raise elevation rpm, got " .. tostring(outputs.rsc.rsc11))
 end
 A.eq(outputs.relays.relay6, false, "stuck climb stays forward")
+
+ship.pitch_rate = 0
+ship.roll_rate = 0
+ship.pitch = 0
+ship.vx = 12
+ship.vy = 0
+ship.vz = 0
+ship.y = 180
+ship.x = 10
+ship.z = 20
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "track"
+state.waypoint_x = 800
+state.waypoint_z = 900
+state.bearing = 1.2
+local kept_mode
+state, outputs, status = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 250 },
+  su = 4,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+kept_mode = state.mode
+A.eq(kept_mode, "auto", "altitude does not require a mode change")
+A.eq(state.altitude, 250, "new altitude replaces the job")
+A.eq(state.job, "altitude", "altitude job")
+A.eq(state.waypoint_x, nil, "waypoint cleared")
+A.eq(state.waypoint_z, nil, "waypoint z cleared")
+
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "track"
+state.waypoint_x = 800
+state.waypoint_z = 900
+state.bearing = 1.2
+state.rpm_memory[250] = 455
+ship.y = 250
+ship.vy = 0
+ship.vx = 0
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 250 },
+  su = 4,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.hover_rpm, 455, "remembered rpm is used for that altitude")
+
+ship.vx = 8
+ship.vy = 0
+ship.y = 180
+ship.x = 10
+ship.z = 20
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "track"
+state.waypoint_x = 800
+state.waypoint_z = 900
+state, outputs, status = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "cancel_jobs" },
+  su = 4,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(state.job, "hover", "cancel hovers")
+A.eq(state.phase, "hold", "cancel holds")
+A.eq(state.target_speed, 0, "cancel stops the speed job")
+A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
+A.eq(state.waypoint_z, nil, "cancel clears waypoint z")
+if status.stop_distance > 1 then
+  error("stop distance should be within 1 m, got " .. tostring(status.stop_distance))
+end
+if not (outputs.rsc.rsc10 < 0) then
+  error("cancel should command a stop, rsc10 " .. tostring(outputs.rsc.rsc10))
+end
+
+ship.vx = 4
+ship.vy = 0
+ship.y = 120
+state = engine_tick.new_state()
+state.mode = "manual"
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+if not (outputs.rsc.rsc10 < 0) then
+  error("released stick should oppose velocity, rsc10 " .. tostring(outputs.rsc.rsc10))
+end
+
+ship.vx = 0
+ship.vy = 0
+ship.y = 120
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 1, z = 0 },
+  su = 1,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+})
+if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > 100000 then
+  error("full sideways command rpm out of range: " .. tostring(outputs.rsc.rsc6))
+end
+
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 0, z = 1 },
+  su = 1,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+})
+if outputs.rsc.rsc2 < 1000 or outputs.rsc.rsc2 > 100000 then
+  error("full vertical command rpm out of range: " .. tostring(outputs.rsc.rsc2))
+end
+A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")
+
+ship.vx = 0
+ship.vy = 0
+ship.y = 120
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = false,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(outputs.rsc.rsc11, 430, "startup keeps the current elevation rpm")
+A.eq(outputs.rsc.rsc10, 0, "startup does not add x thrust")

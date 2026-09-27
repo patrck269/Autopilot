@@ -54,13 +54,19 @@ function M.key(state, name, down)
     return state, nil
   end
   if name == "m" then
+    state.mode = "manual"
     return state, protocol.validate({ type = "set_mode", mode = "manual" })
   end
   if name == "s" then
+    state.mode = "semi"
     return state, protocol.validate({ type = "set_mode", mode = "semi" })
   end
   if name == "u" then
+    state.mode = "auto"
     return state, protocol.validate({ type = "set_mode", mode = "auto" })
+  end
+  if name == "k" then
+    return state, protocol.validate({ type = "cancel_jobs" })
   end
   if name == "e" then
     return state, protocol.validate({ type = "emergency" })

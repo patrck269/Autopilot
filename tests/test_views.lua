@@ -15,6 +15,24 @@ A.near(nav.eta, 10, 1e-6, "eta")
 A.near(nav.drift, 10, 1e-6, "drift off the track")
 A.eq(nav.altitude, 100, "altitude")
 A.eq(nav.bearing, 1.2, "bearing")
+local wrapped = views.navigation({
+  x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0,
+  heading = -1, mode = "manual", waypoint_x = 1, waypoint_z = 0,
+})
+if not (wrapped.bearing >= 0) then
+  error("bearing must not be negative, got " .. tostring(wrapped.bearing))
+end
+local circle = math.pi * 2
+for step = -8, 8 do
+  local heading = step * 0.7
+  local spun = views.navigation({
+    x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0,
+    heading = heading, mode = "manual", waypoint_x = 0, waypoint_z = 0,
+  })
+  if spun.bearing < 0 or spun.bearing >= circle then
+    error("bearing left the non-negative circle: " .. tostring(spun.bearing))
+  end
+end
 A.eq(string.find(nav.compass, "|", 1, true) ~= nil, true, "compass mark")
 local north = views.navigation({
   x = 0, y = 100, z = 0, vx = 0, vy = 0, vz = 0,
@@ -57,12 +75,17 @@ local by_type = {}
 for _, group in ipairs(groups) do
   by_type[group.type] = group
 end
-A.eq(by_type["X propellers"].devices[1].rpm, 30, "x rpm")
-A.eq(by_type["Elevation propellers"].devices[1].rpm, 20, "elevation rpm")
-A.eq(by_type["Upward thrusters"].devices[1].name, "RSC 2", "up group")
-A.eq(by_type["Upward thrusters"].devices[2].rpm, 10, "up rpm")
-A.eq(by_type["Side thrusters"].devices[1].rpm, 0, "side rpm")
+A.eq(by_type["X axis propellers"].devices[1].rpm, 30, "x rpm")
+A.eq(by_type["Z axis propellers"].devices[1].rpm, 20, "z rpm")
+A.eq(by_type["RCS"].devices[1].name, "RSC 2", "rcs group")
+A.eq(by_type["RCS"].devices[2].rpm, 10, "rcs rpm")
 A.eq(by_type["Main shaft"].devices[1].rpm, 256, "shaft rpm")
+local stress = views.stress(40, 100, outputs)
+A.eq(stress.consumed, 40, "su consumed")
+A.eq(stress.remaining, 60, "su remaining")
+if not (stress.x_axis_propellers > 0 and stress.z_axis_propellers > 0 and stress.rcs > 0) then
+  error("expected SU on all three types")
+end
 
 local diagram = views.emergency(outputs)
 local emergency = {}

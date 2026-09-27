@@ -7,6 +7,7 @@ local files = {
   { "src/diagnostic.lua", "src/diagnostic.lua" },
   { "src/engine_tick.lua", "src/engine_tick.lua" },
   { "src/hover.lua", "src/hover.lua" },
+  { "src/jobs.lua", "src/jobs.lua" },
   { "src/manual.lua", "src/manual.lua" },
   { "src/mfd.lua", "src/mfd.lua" },
   { "src/mix.lua", "src/mix.lua" },
