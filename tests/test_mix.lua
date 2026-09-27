@@ -23,6 +23,10 @@ local down_rpm, down_rev = mix.elevation("reverse", 80, 200)
 A.eq(down_rpm, 80, "reverse uses hover magnitude")
 A.eq(down_rev, true, "reverser on")
 
+local desc_rpm, desc_rev = mix.elevation("descend", 80, 200)
+A.eq(desc_rpm, 80, "descend rpm")
+A.eq(desc_rev, true, "descend reverser")
+
 local s6, s7, s8, s9 = mix.sides(1, 0, 10)
 A.eq(s6, 10, "port bow translates starboard")
 A.eq(s8, 10, "port aft translates starboard")

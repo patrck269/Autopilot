@@ -110,3 +110,20 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(outputs.rsc.rsc2, 5, "nose down fires bow starboard")
 A.eq(outputs.rsc.rsc3, 5, "nose down fires bow port")
+
+ship.pitch = 0
+ship.vx = 0
+ship.y = 400
+ship.vy = 0
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "descend"
+state.waypoint_x = 0
+state.waypoint_z = 0
+state, outputs = engine_tick.tick(state, {
+  ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
+})
+A.eq(outputs.relays.relay6, true, "auto descend reverses elevation")
+if not (outputs.rsc.rsc11 > 0) then
+  error("descend rpm: expected positive rsc11 got " .. tostring(outputs.rsc.rsc11))
+end

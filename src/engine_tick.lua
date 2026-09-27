@@ -214,8 +214,12 @@ function M.tick(state, input)
     end
   end
 
-  if vertical == "hold" and state.hover_rpm == 0 and math.abs(ship.vy) < 0.05 then
-    state.hover_rpm = cfg.climb_rpm * 0.25
+  if state.hover_rpm == 0 then
+    if vertical == "descend" or vertical == "reverse" then
+      state.hover_rpm = cfg.climb_rpm * 0.25
+    elseif vertical == "hold" and math.abs(ship.vy) < 0.05 then
+      state.hover_rpm = cfg.climb_rpm * 0.25
+    end
   end
   state.hover_rpm = hover.adjust(state.hover_rpm, ship.vy, cfg.hover_gain)
   if state.hover_rpm < 0 then
