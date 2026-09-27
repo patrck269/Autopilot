@@ -322,9 +322,9 @@ local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
   end
 end
 
-ship.vx = 35
-ship.vz = 5
-ship.vy = 4
+ship.vx = 0
+ship.vz = 0
+ship.vy = 0
 ship.x = 0
 ship.y = 180
 ship.z = 0
@@ -332,12 +332,34 @@ ship.pitch_rate = 0
 ship.roll_rate = 0
 ship.pitch = 0
 state = engine_tick.new_state()
-state.mode = "semi"
-state.target_speed = 35
-state.ramp_speed = 35
-state.phase = "hold"
-state.waypoint_x = 800
-state.waypoint_z = 900
+local function semi_step(command)
+  local stepped
+  state, stepped = engine_tick.tick(state, {
+    ship = ship,
+    command = command,
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = 430,
+  })
+  local accel = axis_accel(stepped.rsc.rsc10, cfg.ship_mass)
+  ship.x, ship.vx = coast(ship.x, ship.vx, accel, 0.05)
+  local lift = jobs.thrust(stepped.rsc.rsc11, cfg.ship_mass) / cfg.ship_mass - 10
+  ship.y, ship.vy = coast(ship.y, ship.vy, lift, 0.05)
+  local side = side_accel(stepped, cfg.ship_mass)
+  ship.z, ship.vz = coast(ship.z, ship.vz, side, 0.05)
+end
+semi_step({ type = "set_mode", mode = "semi" })
+semi_step({ type = "set_speed", speed = 80 })
+local spun = 0
+while ship.vx < 35 and spun < 20000 do
+  semi_step(nil)
+  spun = spun + 1
+end
+if ship.vx < 35 then
+  error("semi-automatic did not reach the 35 m/s cap, vx " .. tostring(ship.vx))
+end
 local min_vx, max_vx
 state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx = fly_until_rest(state, { type = "cancel_jobs" })
 A.eq(state.job, "hover", "cancel hovers")
