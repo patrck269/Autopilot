@@ -6,13 +6,13 @@ local function recorder()
   local calls = {}
   return {
     calls = calls,
-    setTargetSpeed = function(_, rpm)
+    setTargetSpeed = function(rpm)
       calls[#calls + 1] = "rpm " .. tostring(rpm)
     end,
-    setOutput = function(_, side, value)
+    setOutput = function(side, value)
       calls[#calls + 1] = "out " .. side .. " " .. tostring(value)
     end,
-    setAnalogOutput = function(_, side, value)
+    setAnalogOutput = function(side, value)
       calls[#calls + 1] = "analog " .. side .. " " .. tostring(value)
     end,
   }
@@ -27,5 +27,5 @@ runtime.apply({
 }, { rsc10 = rsc, relay2 = relay, relay7 = relay })
 A.eq(rsc.calls[1], "rpm -12", "rsc")
 A.eq(relay.calls[1], "analog bottom 4", "stepped throttle")
-A.eq(relay.calls[2], "out bottom 15", "cutoff all sides starts at bottom")
+A.eq(relay.calls[2], "out bottom true", "cutoff all sides starts at bottom")
 A.eq(#relay.calls, 7, "analog plus six sides")
