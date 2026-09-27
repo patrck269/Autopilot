@@ -1,4 +1,4 @@
-local BASE = "https://raw.githubusercontent.com/patrck269/Autopilot/master/"
+local BASE = "https://raw.githubusercontent.com/patrck269/Autopilot/13855ce2ac0b81801ca5c2293e3014e2618f22f9/"
 
 local files = {
   { "programs/command.lua", "startup.lua" },
