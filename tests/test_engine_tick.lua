@@ -259,6 +259,7 @@ end
 local function fly_until_rest(state, command)
   local x0, y0, z0 = ship.x, ship.y, ship.z
   local peak_x, peak_y, peak_z = 0, 0, 0
+  local min_vx, max_vx = ship.vx, ship.vx
   local outputs
   local fresh = command ~= nil
   for _ = 1, 400 do
@@ -282,6 +283,12 @@ local function fly_until_rest(state, command)
     peak_x = math.max(peak_x, math.abs(ship.x - x0))
     peak_y = math.max(peak_y, math.abs(ship.y - y0))
     peak_z = math.max(peak_z, math.abs(ship.z - z0))
+    if ship.vx < min_vx then
+      min_vx = ship.vx
+    end
+    if ship.vx > max_vx then
+      max_vx = ship.vx
+    end
     if math.abs(ship.vx) < 0.05 and math.abs(ship.vy) < 0.05 and math.abs(ship.vz) < 0.05
       and state.brake_x == nil and state.brake_z == nil and state.brake_elev == nil then
       break
@@ -295,7 +302,7 @@ local function fly_until_rest(state, command)
     stick_fresh = false,
     config = cfg,
   })
-  return state, outputs, peak_x, peak_y, peak_z
+  return state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx
 end
 
 local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
@@ -325,13 +332,19 @@ ship.pitch_rate = 0
 ship.roll_rate = 0
 ship.pitch = 0
 state = engine_tick.new_state()
-state.mode = "auto"
-state.phase = "track"
+state.mode = "semi"
+state.target_speed = 35
+state.ramp_speed = 35
+state.phase = "hold"
 state.waypoint_x = 800
 state.waypoint_z = 900
-state, outputs, peak_x, peak_y, peak_z = fly_until_rest(state, { type = "cancel_jobs" })
+local min_vx, max_vx
+state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx = fly_until_rest(state, { type = "cancel_jobs" })
 A.eq(state.job, "hover", "cancel hovers")
 A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
+if min_vx < -0.05 then
+  error("semi-cap cancel reversed to " .. tostring(min_vx) .. " m/s")
+end
 assert_stopped("cancel", state, outputs, peak_x, peak_y, peak_z)
 
 ship.vx = 4
@@ -342,7 +355,7 @@ ship.y = 120
 ship.z = 0
 state = engine_tick.new_state()
 state.mode = "manual"
-state, outputs, peak_x, peak_y, peak_z = fly_until_rest(state, nil)
+state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx = fly_until_rest(state, nil)
 assert_stopped("release", state, outputs, peak_x, peak_y, peak_z)
 
 ship.vx = 0
