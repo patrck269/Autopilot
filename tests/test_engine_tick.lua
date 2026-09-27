@@ -247,19 +247,7 @@ local function side_accel(outputs, mass)
 end
 
 local function coast(pos, vel, accel, dt)
-  local step = dt
-  if accel ~= 0 and vel ~= 0 and ((vel > 0 and accel < 0) or (vel < 0 and accel > 0)) then
-    local stop_at = math.abs(vel / accel)
-    if stop_at < step then
-      step = stop_at
-    end
-  end
-  pos = pos + vel * step + 0.5 * accel * step * step
-  vel = vel + accel * step
-  if step < dt or math.abs(vel) < 1e-8 then
-    vel = 0
-  end
-  return pos, vel
+  return pos + vel * dt + 0.5 * accel * dt * dt, vel + accel * dt
 end
 
 local function fly_until_rest(state, command)
@@ -321,7 +309,7 @@ local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
   end
 end
 
-ship.vx = 8
+ship.vx = 35
 ship.vz = 5
 ship.vy = 4
 ship.x = 0

@@ -3,16 +3,37 @@ local config = require("config")
 local M = {}
 
 local GRAVITY = 10
+local STEP = 0.05
+
+local function hover_setting()
+  local hover = config.default().hover_equilibrium
+  if hover == nil or hover <= 0 then
+    return 430
+  end
+  return hover
+end
+
+local function stop_accel(speed)
+  local v = math.abs(speed)
+  local ticks = math.floor((2 / v) / STEP)
+  if ticks < 1 then
+    ticks = 1
+  end
+  return v / (ticks * STEP)
+end
+
+local function rpm_for_thrust(thrust_accel)
+  if thrust_accel < 0 then
+    thrust_accel = 0
+  end
+  return config.clamp_rpm(hover_setting() * ((thrust_accel / GRAVITY) ^ (1 / 1.2)))
+end
 
 function M.thrust(rpm, mass)
   if mass == nil or mass <= 0 then
     return 0
   end
-  local hover = config.default().hover_equilibrium
-  if hover == nil or hover <= 0 then
-    hover = 430
-  end
-  local ratio = math.abs(rpm) / hover
+  local ratio = math.abs(rpm) / hover_setting()
   return mass * GRAVITY * (ratio ^ 1.2)
 end
 
@@ -20,14 +41,7 @@ function M.brake_rpm(speed, mass)
   if speed == nil or math.abs(speed) < 0.05 or mass == nil or mass <= 0 then
     return 0
   end
-  local hover = config.default().hover_equilibrium
-  if hover == nil or hover <= 0 then
-    hover = 430
-  end
-  local accel = (speed * speed) / 2
-  local force = mass * accel
-  local ratio = (force / (mass * GRAVITY)) ^ (1 / 1.2)
-  local rpm = config.clamp_rpm(hover * ratio)
+  local rpm = rpm_for_thrust(stop_accel(speed))
   if speed > 0 then
     return -rpm
   end
@@ -44,20 +58,28 @@ function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
     end
     return config.clamp_rpm(hold_rpm)
   end
-  local hover = config.default().hover_equilibrium
-  if hover == nil or hover <= 0 then
-    hover = 430
-  end
-  local stopping = (vertical_speed * vertical_speed) / 2
+  local stopping = stop_accel(vertical_speed)
   local thrust_accel = GRAVITY - stopping
   if vertical_speed < 0 then
     thrust_accel = GRAVITY + stopping
   end
-  if thrust_accel < 0 then
-    thrust_accel = 0
+  return rpm_for_thrust(thrust_accel)
+end
+
+local function finish_rpm(speed, vertical)
+  local finish = math.abs(speed) / STEP
+  if vertical then
+    local thrust_accel = GRAVITY - finish
+    if speed < 0 then
+      thrust_accel = GRAVITY + finish
+    end
+    return rpm_for_thrust(thrust_accel)
   end
-  local ratio = (thrust_accel / GRAVITY) ^ (1 / 1.2)
-  return config.clamp_rpm(hover * ratio)
+  local rpm = rpm_for_thrust(finish)
+  if speed > 0 then
+    return -rpm
+  end
+  return rpm
 end
 
 function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
@@ -78,11 +100,15 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
     if sign ~= captured.sign then
       return rest_rpm, nil
     end
+    if math.abs(speed) <= captured.accel * STEP * (1 + 1e-4) then
+      return finish_rpm(speed, vertical), nil
+    end
     return captured.rpm, captured
   end
   if math.abs(speed) < 0.05 then
     return rest_rpm, nil
   end
+  local accel = stop_accel(speed)
   local rpm
   if vertical then
     rpm = M.elevation_brake_rpm(speed, mass, rest_rpm)
@@ -93,7 +119,7 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   if speed < 0 then
     sign = -1
   end
-  return rpm, { rpm = rpm, sign = sign }
+  return rpm, { rpm = rpm, sign = sign, accel = accel }
 end
 
 function M.stopping_distance(speed, rpm, mass)
