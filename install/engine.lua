@@ -1,4 +1,4 @@
-local BASE = "https://raw.githubusercontent.com/patrck269/Autopilot/283a027ba1fc0ce52bbad5376a6b23db67b02158/"
+local BASE = "https://raw.githubusercontent.com/patrck269/Autopilot/5db9436f42026c913de245fb339de8f3476e0790/"
 
 local files = {
   { "programs/engine.lua", "startup.lua" },
@@ -13,6 +13,7 @@ local files = {
   { "src/mix.lua", "src/mix.lua" },
   { "src/monitors.lua", "src/monitors.lua" },
   { "src/outage.lua", "src/outage.lua" },
+  { "src/pid.lua", "src/pid.lua" },
   { "src/protocol.lua", "src/protocol.lua" },
   { "src/runtime.lua", "src/runtime.lua" },
   { "src/speed.lua", "src/speed.lua" },
