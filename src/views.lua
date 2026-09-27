@@ -18,11 +18,6 @@ function M.navigation(sample)
   if sample.mode == "auto" and horizontal > 0 then
     eta = distance / horizontal
   end
-  local ticks = {}
-  for i = 1, 16 do
-    ticks[i] = "-"
-  end
-  ticks[8] = "|"
   return {
     eta = eta,
     overall = overall,
@@ -30,8 +25,26 @@ function M.navigation(sample)
     drift = drift,
     bearing = sample.heading,
     distance = distance,
-    compass = table.concat(ticks),
+    compass = M.compass(sample.heading, 16),
   }
+end
+
+function M.compass(heading, width)
+  local ticks = {}
+  for i = 1, width do
+    ticks[i] = "-"
+  end
+  local turns = heading / (2 * math.pi)
+  turns = turns - math.floor(turns)
+  if turns < 0 then
+    turns = turns + 1
+  end
+  local index = math.floor(turns * width) + 1
+  if index > width then
+    index = 1
+  end
+  ticks[index] = "|"
+  return table.concat(ticks)
 end
 
 local FLIGHT_PARTS = {
@@ -104,19 +117,19 @@ function M.engines(outputs, shaft_rpm)
 end
 
 local EMERGENCY_PARTS = {
-  { label = "PB prop", rpm = "rsc11", cut = "relay7" },
-  { label = "SB prop", rpm = "rsc11", cut = "relay8" },
-  { label = "SS prop", rpm = "rsc11", cut = "relay9" },
-  { label = "PS prop", rpm = "rsc11", cut = "relay10" },
-  { label = "PB up", rpm = "rsc3" },
-  { label = "SB up", rpm = "rsc2" },
-  { label = "PS up", rpm = "rsc5" },
-  { label = "SS up", rpm = "rsc4" },
-  { label = "PB side", rpm = "rsc6" },
-  { label = "SA side", rpm = "rsc7" },
-  { label = "PA side", rpm = "rsc8" },
-  { label = "BS side", rpm = "rsc9" },
-  { label = "X prop", rpm = "rsc10", cut = "relay3" },
+  { label = "PB prop", rpm = "rsc11", cut = "relay7", x = 0, y = 0 },
+  { label = "SB prop", rpm = "rsc11", cut = "relay8", x = 1, y = 0 },
+  { label = "PS prop", rpm = "rsc11", cut = "relay10", x = 0, y = 1 },
+  { label = "SS prop", rpm = "rsc11", cut = "relay9", x = 1, y = 1 },
+  { label = "PB up", rpm = "rsc3", x = 0.15, y = 0.2 },
+  { label = "SB up", rpm = "rsc2", x = 0.85, y = 0.2 },
+  { label = "PS up", rpm = "rsc5", x = 0.15, y = 0.8 },
+  { label = "SS up", rpm = "rsc4", x = 0.85, y = 0.8 },
+  { label = "PB side", rpm = "rsc6", x = 0, y = 0.35 },
+  { label = "BS side", rpm = "rsc9", x = 1, y = 0.35 },
+  { label = "PA side", rpm = "rsc8", x = 0, y = 0.65 },
+  { label = "SA side", rpm = "rsc7", x = 1, y = 0.65 },
+  { label = "X prop", rpm = "rsc10", cut = "relay3", x = 0.5, y = 0.5 },
 }
 
 function M.emergency(outputs)
@@ -130,7 +143,13 @@ function M.emergency(outputs)
     elseif math.abs(rpm) > 0 then
       color = "green"
     end
-    parts[#parts + 1] = { label = part.label, color = color, rpm = rpm }
+    parts[#parts + 1] = {
+      label = part.label,
+      color = color,
+      rpm = rpm,
+      x = part.x,
+      y = part.y,
+    }
   end
   return parts
 end

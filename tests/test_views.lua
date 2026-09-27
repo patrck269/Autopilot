@@ -16,6 +16,15 @@ A.near(nav.drift, 10, 1e-6, "drift off the track")
 A.eq(nav.altitude, 100, "altitude")
 A.eq(nav.bearing, 1.2, "bearing")
 A.eq(string.find(nav.compass, "|", 1, true) ~= nil, true, "compass mark")
+local north = views.navigation({
+  x = 0, y = 100, z = 0, vx = 0, vy = 0, vz = 0,
+  heading = 0, mode = "manual", waypoint_x = 0, waypoint_z = 1,
+})
+local south = views.navigation({
+  x = 0, y = 100, z = 0, vx = 0, vy = 0, vz = 0,
+  heading = math.pi, mode = "manual", waypoint_x = 0, waypoint_z = 1,
+})
+A.eq(north.compass == south.compass, false, "compass follows heading")
 
 local outputs = {
   rsc = {
@@ -63,3 +72,9 @@ end
 A.eq(emergency["PB prop"], "red", "cut prop")
 A.eq(emergency["PB up"], "green", "powered up thruster")
 A.eq(emergency["SB up"], "gray", "idle up thruster")
+local placed = {}
+for _, part in ipairs(diagram) do
+  placed[part.label] = part
+end
+A.eq(placed["PB prop"].x < placed["SB prop"].x, true, "port is left of starboard")
+A.eq(placed["PB prop"].y < placed["PS prop"].y, true, "bow is ahead of stern")

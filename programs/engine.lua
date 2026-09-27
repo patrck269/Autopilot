@@ -232,23 +232,31 @@ local function draw(status, outputs, sample)
       mon.write("SU " .. tostring(status.su))
     elseif page == "Emergency" then
       local diagram = views.emergency(outputs)
-      local col = 1
-      local row = 3
+      local top = 3
+      local bottom = math.max(top + 2, h - 3)
+      local left = 1
+      local right = math.max(left + 8, w - 8)
       for _, part in ipairs(diagram) do
-        mon.setCursorPos(col, row)
+        local px = left + math.floor(part.x * (right - left))
+        local py = top + math.floor(part.y * (bottom - top))
+        if px > w - #part.label then
+          px = w - #part.label
+        end
+        if px < 1 then
+          px = 1
+        end
+        mon.setCursorPos(px, py)
         mon.setBackgroundColor(PALETTE[part.color])
         mon.setTextColor(colors.black)
-        mon.write(" " .. part.label .. " ")
-        col = col + #part.label + 3
-        if col > w - 10 then
-          col = 1
-          row = row + 2
-        end
+        mon.write(part.label)
       end
     else
       mon.setBackgroundColor(colors.black)
+      mon.setTextColor(colors.lime)
       mon.setCursorPos(1, 3)
-      mon.write("missing " .. table.concat(missing, " "))
+      if ready then
+        mon.write("All peripherals present")
+      end
     end
     paint_tabs(mon, w, h, page)
   end
