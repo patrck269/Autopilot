@@ -419,17 +419,6 @@ function M.tick(state, input)
     roll_err = ship.roll
   end
   local rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, 0, cfg.side_gain)
-  local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
-  if not (state.mode == "manual" and state.stick.y ~= 0) then
-    local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
-    if yaw_err > 0 then
-      rsc6 = spin
-      rsc7 = spin
-    elseif yaw_err < 0 then
-      rsc8 = spin
-      rsc9 = spin
-    end
-  end
   if state.mode == "manual" and state.stick.y ~= 0 then
     local side_rpm = manual.rcs_rpm(math.abs(state.stick.y), cfg.ship_mass)
     rsc6, rsc7, rsc8, rsc9 = 0, 0, 0, 0
@@ -515,6 +504,17 @@ function M.tick(state, input)
   end
   if stop_z then
     apply_side_brake(outputs, z_hold)
+  end
+  if not (state.mode == "manual" and state.stick.y ~= 0) then
+    local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
+    local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
+    if yaw_err > 0 then
+      outputs.rsc.rsc6 = spin
+      outputs.rsc.rsc7 = spin
+    elseif yaw_err < 0 then
+      outputs.rsc.rsc8 = spin
+      outputs.rsc.rsc9 = spin
+    end
   end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
 

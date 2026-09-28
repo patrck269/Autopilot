@@ -707,6 +707,51 @@ if turned <= 0 then
   error("heading did not turn toward the bearing")
 end
 
+local function assert_bearing_rcs(label, prior)
+  ship.heading = 0
+  ship.vy = 0
+  ship.vz = 0
+  ship.vx = 0
+  ship.y = 120
+  state, outputs = engine_tick.tick(prior, {
+    ship = ship,
+    command = { type = "set_bearing", bearing = math.pi },
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = 430,
+  })
+  if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
+    error(label .. " bearing rcs out of range: " .. tostring(outputs.rsc.rsc6))
+  end
+  if outputs.rsc.rsc7 < 1000 or outputs.rsc.rsc7 > cfg.max_rpm then
+    error(label .. " bearing rcs pair out of range: " .. tostring(outputs.rsc.rsc7))
+  end
+end
+
+local manual_only = engine_tick.new_state()
+manual_only.mode = "manual"
+assert_bearing_rcs("manual", manual_only)
+
+local after_hold = engine_tick.new_state()
+after_hold.mode = "manual"
+engine_tick.tick(after_hold, {
+  ship = ship,
+  command = { type = "set_altitude", y = 120 },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+assert_bearing_rcs("after altitude hold", after_hold)
+
+local hovering = engine_tick.new_state()
+hovering.job = "hover"
+hovering.mode = "semi"
+assert_bearing_rcs("hover", hovering)
+
 ship.vx = 0
 ship.vy = 0
 ship.y = 120
