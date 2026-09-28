@@ -4,6 +4,7 @@ local engine_tick = require("engine_tick")
 local config = require("config")
 local pid = require("pid")
 local stress = require("stress")
+local speed = require("speed")
 
 local cfg = config.default()
 local ship = {
@@ -1438,3 +1439,24 @@ end
 ship.x = 40
 state, outputs = step_ship(state, nil, true, false)
 A.eq(state.phase, "brake", "cruise brakes inside the measured stopping distance")
+
+fresh_ship(450, 0)
+ship.vx = 20
+ship.x = -400
+ship.z = 0
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "climb"
+state.waypoint_x = 0
+state.waypoint_z = 0
+state, outputs = step_ship(state, nil, true, false)
+ship.vx = 20.2
+state, outputs = step_ship(state, nil, true, false)
+local stop = speed.brake_distance(ship.vx, state.measured_accel)
+ship.x = -(stop + 100)
+ship.vx = ship.vx + 0.01
+state, outputs = step_ship(state, nil, true, false)
+A.eq(state.phase, "track", "a smaller speed gain does not brake outside the demonstrated stop")
+if outputs.rsc.rsc10 < 0 then
+  error("cruise reversed outside the demonstrated stopping distance, rsc10 " .. tostring(outputs.rsc.rsc10))
+end

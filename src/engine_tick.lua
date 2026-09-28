@@ -259,7 +259,10 @@ function M.tick(state, input)
   elseif ship.dt > 0 then
     local delta = horiz - state.last_horiz
     if delta > 0 then
-      state.measured_accel = delta / ship.dt
+      local sample = delta / ship.dt
+      if state.measured_accel == nil or sample > state.measured_accel then
+        state.measured_accel = sample
+      end
     end
     state.last_horiz = horiz
   end
