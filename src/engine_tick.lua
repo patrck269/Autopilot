@@ -508,10 +508,10 @@ function M.tick(state, input)
   if not (state.mode == "manual" and state.stick.y ~= 0) then
     local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
     local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
-    if yaw_err > 0 then
+    if spin ~= 0 and yaw_err > 0 then
       outputs.rsc.rsc6 = spin
       outputs.rsc.rsc7 = spin
-    elseif yaw_err < 0 then
+    elseif spin ~= 0 and yaw_err < 0 then
       outputs.rsc.rsc8 = spin
       outputs.rsc.rsc9 = spin
     end

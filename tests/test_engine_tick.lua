@@ -752,6 +752,36 @@ hovering.job = "hover"
 hovering.mode = "semi"
 assert_bearing_rcs("hover", hovering)
 
+local function hover_brake(heading)
+  local braking = engine_tick.new_state()
+  braking.job = "hover"
+  braking.mode = "semi"
+  ship.heading = heading
+  ship.bearing = 0
+  ship.vx = 0
+  ship.vy = 0
+  ship.vz = 4
+  ship.y = 120
+  local _
+  braking, outputs = engine_tick.tick(braking, {
+    ship = ship,
+    command = { type = "set_bearing", bearing = 0 },
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = 430,
+  })
+  return outputs
+end
+local exact_brake = hover_brake(0)
+local near_brake = hover_brake(0.01)
+if exact_brake.rsc.rsc7 == 0 or exact_brake.rsc.rsc7 ~= exact_brake.rsc.rsc9 then
+  error("exact heading did not brake both sides: " .. tostring(exact_brake.rsc.rsc7) .. " " .. tostring(exact_brake.rsc.rsc9))
+end
+A.eq(near_brake.rsc.rsc7, exact_brake.rsc.rsc7, "a tiny heading error keeps the brake pair")
+A.eq(near_brake.rsc.rsc9, exact_brake.rsc.rsc9, "a tiny heading error keeps the other brake thruster")
+
 ship.vx = 0
 ship.vy = 0
 ship.y = 120
