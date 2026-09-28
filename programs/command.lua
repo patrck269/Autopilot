@@ -166,7 +166,7 @@ while true do
     end
   elseif event == "key" then
     local name = keys.getName(p1)
-    state, message = command_ui.key(state, name, true)
+    state, message = command_ui.key(state, name, true, p2)
   elseif event == "key_up" then
     local name = keys.getName(p1)
     state, message = command_ui.key(state, name, false)

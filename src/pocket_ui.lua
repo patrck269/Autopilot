@@ -55,6 +55,7 @@ function M.touch(state, x, y, ctx)
       { id = "minus", x = 14, y = 1, w = 3, h = 1 },
       { id = "hover", x = 1, y = 3, w = 12, h = 1 },
       { id = "elev", x = 1, y = 4, w = 8, h = 1 },
+      { id = "exit", x = 1, y = 6, w = 12, h = 1 },
     }, x, y)
     if id == "plus" then
       state.rpm = state.rpm + 1
@@ -75,6 +76,12 @@ function M.touch(state, x, y, ctx)
     if id == "device" and not state.diag_open then
       state.diag_open = true
       return state, protocol.validate({ type = "diagnostic_enter", hover = false })
+    end
+    if id == "exit" then
+      state.screen = "root"
+      state.diag_open = false
+      state.hover = false
+      return state, protocol.validate({ type = "diagnostic_exit" })
     end
     return state, nil
   end

@@ -31,7 +31,7 @@ local function set_axis(state, axis, value, down)
   return stick_msg(state)
 end
 
-function M.key(state, name, down)
+function M.key(state, name, down, held)
   if name == "right" then
     return state, set_axis(state, "x", 1, down)
   end
@@ -49,6 +49,9 @@ function M.key(state, name, down)
   end
   if name == "leftShift" or name == "down" then
     return state, set_axis(state, "z", -1, down)
+  end
+  if held then
+    return state, nil
   end
   if not down then
     return state, nil

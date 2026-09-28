@@ -20,6 +20,44 @@ A.eq(blocked.mode, "blocked", "not ready")
 A.eq(outputs.rsc.rsc10, 0, "no thrust when blocked")
 
 state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "diagnostic_enter", hover = false },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 300 },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.diagnostic, true, "diagnostic ignores altitude until it is closed")
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "diagnostic_exit" },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "set_altitude", y = 300 },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.eq(state.diagnostic, false, "diagnostic exit returns to flight")
+A.eq(state.altitude, 300, "altitude after diagnostic exit")
+A.eq(state.job, "altitude", "altitude job after diagnostic exit")
+
+state = engine_tick.new_state()
 state, outputs, status = engine_tick.tick(state, {
   ship = ship,
   command = { type = "stick", x = 1, y = 0, z = 0 },

@@ -60,9 +60,15 @@ local function wrap_devices()
   return devices
 end
 
+local devices = wrap_devices()
+local stress_gauge = devices.stressometer
+local elevation_device = devices.rsc11
+local speed_gauge = devices.speedometer
+
 local screens = {}
 local page_names = {}
 local function attach_monitors()
+  screens = {}
   local found = { peripheral.find("monitor") }
   local list = {}
   for _, mon in ipairs(found) do
@@ -84,6 +90,26 @@ local function attach_monitors()
 end
 
 local pages, ordered_names = attach_monitors()
+
+local function refresh_peripherals()
+  devices = wrap_devices()
+  stress_gauge = devices.stressometer
+  elevation_device = devices.rsc11
+  speed_gauge = devices.speedometer
+  missing = startup.missing(present_map(), config.required_names(cfg))
+  ready = #missing == 0
+  local assigned = attach_monitors()
+  for name, page in pairs(assigned) do
+    if pages[name] == nil then
+      pages[name] = page
+    end
+  end
+  for name in pairs(pages) do
+    if screens[name] == nil then
+      pages[name] = nil
+    end
+  end
+end
 
 local PALETTE = {
   green = colors.green,
@@ -121,9 +147,8 @@ local function paint_tabs(mon, w, h, page)
 end
 
 local function shaft_rpm()
-  local gauge = peripheral.wrap(cfg.names.speedometer)
-  if gauge ~= nil and gauge.getSpeed ~= nil then
-    return gauge.getSpeed()
+  if speed_gauge ~= nil and speed_gauge.getSpeed ~= nil then
+    return speed_gauge.getSpeed()
   end
   return 0
 end
@@ -298,6 +323,8 @@ while true do
   local event, a, b, c = os.pullEvent()
   if event == "rednet_message" then
     pending = protocol.keep(pending, b)
+  elseif event == "peripheral" or event == "peripheral_detach" then
+    refresh_peripherals()
   elseif event == "monitor_touch" then
     local screen = screens[a]
     if screen ~= nil then
@@ -310,7 +337,6 @@ while true do
     local sample = collect_ship()
     local consumed = 0
     local capacity = 0
-    local stress_gauge = peripheral.wrap(cfg.names.stressometer)
     if stress_gauge ~= nil and stress_gauge.getStress ~= nil then
       consumed = stress_gauge.getStress()
     end
@@ -318,9 +344,8 @@ while true do
       capacity = stress_gauge.getStressCapacity()
     end
     local elevation_rpm = nil
-    local elevation = peripheral.wrap(cfg.names.rsc11)
-    if elevation ~= nil and elevation.getTargetSpeed ~= nil then
-      elevation_rpm = elevation.getTargetSpeed()
+    if elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
+      elevation_rpm = elevation_device.getTargetSpeed()
     end
     local command = pending
     pending = nil
@@ -342,7 +367,7 @@ while true do
     status.su_x_axis_propellers = stress.x_axis_propellers
     status.su_z_axis_propellers = stress.z_axis_propellers
     status.su_rcs = stress.rcs
-    runtime.apply(outputs, wrap_devices())
+    runtime.apply(outputs, devices)
     status.speed = status.horizontal_speed
     rednet.broadcast(status)
     draw(status, outputs, sample, stress)
