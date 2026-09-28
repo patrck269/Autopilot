@@ -9,8 +9,9 @@ local DENSITY_TOP = 84852
 local GRAVITY = 10
 local MOLAR_MASS = 0.0289644
 local GAS_CONSTANT = 8.314
--- The configured equilibrium RPM cancels gravity at this world Y, not at sea level.
-local REFERENCE_Y = 100
+-- Equilibrium RPM cancels gravity at sea-level density. World Y at or below
+-- sea level uses that same density.
+local REFERENCE_Y = SEA_LEVEL
 
 local LAYERS = {
   { height = 0, density = 1.225, temperature = 288.15, lapse = 0.0065, top = 11000 },
@@ -59,6 +60,15 @@ end
 
 function M.reference_y()
   return REFERENCE_Y
+end
+
+function M.thrust_scale(world_y)
+  local density = M.air_density(world_y)
+  local sea = M.air_density(REFERENCE_Y)
+  if density <= 0 or sea <= 0 then
+    return 1e6
+  end
+  return (sea / density) ^ (1 / 1.2)
 end
 
 function M.calibrate(equilibrium, step)
@@ -135,15 +145,7 @@ function M.command(gains, integral, altitude, target, vertical_speed, dt)
   if specific < 0 then
     specific = 0
   end
-  local density = M.air_density(altitude)
-  local reference = M.air_density(REFERENCE_Y)
-  local scale = 1
-  if density > 0 and reference > 0 then
-    scale = reference / density
-  else
-    scale = 1e6
-  end
-  local rpm = gains.equilibrium * (((specific / 10) * scale) ^ (1 / 1.2))
+  local rpm = gains.equilibrium * ((specific / 10) ^ (1 / 1.2)) * M.thrust_scale(altitude)
   return config.clamp_rpm(rpm), next_integral, reverser
 end
 

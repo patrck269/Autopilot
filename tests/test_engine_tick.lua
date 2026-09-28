@@ -534,7 +534,7 @@ ship.vx = 0
 ship.vz = 0
 ship.vy = 0
 ship.x = 0
-ship.y = 100
+ship.y = 62
 ship.z = 0
 ship.pitch_rate = 0
 ship.roll_rate = 0
@@ -835,12 +835,17 @@ local function tick_hold(world_y)
   return stepped.rsc.rsc11, holding
 end
 local low_rpm = tick_hold(62)
-local ref_rpm = tick_hold(pid.reference_y())
+local below_sea = tick_hold(0)
+local mid_rpm = tick_hold(100)
 local high_rpm, high_state = tick_hold(1000)
-A.near(ref_rpm, cfg.hover_equilibrium, 1e-3, "hover rpm at 100 blocks is the equilibrium")
-A.near(ref_rpm, density_hold(pid.reference_y()), 1e-3, "engine tick uses the density command")
-if not (low_rpm < ref_rpm and ref_rpm < high_rpm) then
-  error("elevation rpm did not rise with altitude: " .. tostring(low_rpm) .. " " .. tostring(ref_rpm) .. " " .. tostring(high_rpm))
+A.near(low_rpm, cfg.hover_equilibrium, 1e-3, "hover rpm at sea level is the equilibrium")
+A.near(below_sea, cfg.hover_equilibrium, 1e-3, "hover rpm below sea level is the equilibrium")
+A.near(low_rpm, density_hold(62), 1e-3, "engine tick uses the density command")
+if not (low_rpm < mid_rpm and mid_rpm < high_rpm) then
+  error("elevation rpm did not rise with altitude: " .. tostring(low_rpm) .. " " .. tostring(mid_rpm) .. " " .. tostring(high_rpm))
+end
+if high_rpm < 25000 or high_rpm > 27000 then
+  error("y=1000 hover is outside 25000-27000 for equilibrium 430: " .. tostring(high_rpm))
 end
 if high_rpm > cfg.max_rpm then
   error("y=1000 hover exceeded the rpm cap: " .. tostring(high_rpm))

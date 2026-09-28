@@ -355,7 +355,9 @@ function M.tick(state, input)
   local elev_reverse = false
   if stop_y then
     y_hold, state.brake_elev, elev_reverse = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
-    if math.abs(ship.vy) < 0.05 and elev_reverse ~= true and y_hold < rest_elevation() then
+    if math.abs(ship.vy) >= 0.05 then
+      y_hold = config.clamp_rpm(y_hold * pid.thrust_scale(ship.y))
+    elseif elev_reverse ~= true and y_hold < rest_elevation() then
       y_hold = rest_elevation()
     end
     if state.brake_elev == nil and math.abs(ship.vy) < 0.05 then
