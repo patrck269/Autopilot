@@ -4,6 +4,10 @@ local M = {}
 -- clockwork bearings (impact 4) on rsc11. Each RCS output is one vstuff
 -- mechanical thruster (impact 8).
 M.CAPACITY = 479231
+-- Leave room for shafts and the rest of the network. Sitting on the exact
+-- capacity overstresses Create, the shaft speed falls to 0, and a vstuff
+-- thruster then produces no force.
+M.USABLE = 431308
 M.RCS_IMPACT = 8
 M.ELEVATION_IMPACT = 4
 M.ELEVATION_PROPS = 4
@@ -30,11 +34,11 @@ function M.limit_manual(outputs)
     rcs_abs = rcs_abs + math.abs(rsc[name] or 0)
   end
   local rcs_su = rcs_abs * M.RCS_IMPACT
-  if elev_su + rcs_su <= M.CAPACITY then
+  if elev_su + rcs_su <= M.USABLE then
     return outputs
   end
-  if elev_su >= M.CAPACITY then
-    local max_elev = M.CAPACITY / (M.ELEVATION_PROPS * M.ELEVATION_IMPACT)
+  if elev_su >= M.USABLE then
+    local max_elev = M.USABLE / (M.ELEVATION_PROPS * M.ELEVATION_IMPACT)
     if (rsc.rsc11 or 0) < 0 then
       rsc.rsc11 = -max_elev
     else
@@ -45,14 +49,14 @@ function M.limit_manual(outputs)
     end
     return outputs
   end
-  local scale = (M.CAPACITY - elev_su) / rcs_su
+  local scale = (M.USABLE - elev_su) / rcs_su
   for _, name in ipairs(RCS) do
     rsc[name] = (rsc[name] or 0) * scale
   end
-  if M.consumed(outputs) > M.CAPACITY then
+  if M.consumed(outputs) > M.USABLE then
     local left = M.consumed(outputs) - elev_su
     if left > 0 then
-      local fix = (M.CAPACITY - elev_su) / left
+      local fix = (M.USABLE - elev_su) / left
       for _, name in ipairs(RCS) do
         rsc[name] = (rsc[name] or 0) * fix
       end

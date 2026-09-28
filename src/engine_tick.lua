@@ -511,9 +511,7 @@ function M.tick(state, input)
     end
   end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
-  if state.mode == "manual" then
-    stress.limit_manual(outputs)
-  end
+  stress.limit_manual(outputs)
 
   return state, clamp_outputs(outputs), status_of(state, ship, input.su, outage_name)
 end

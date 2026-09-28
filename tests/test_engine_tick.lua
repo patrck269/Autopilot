@@ -685,8 +685,11 @@ if outputs.rsc.rsc11 <= cfg.hover_equilibrium then
 end
 A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")
 local up_su = stress.consumed(outputs)
-if up_su > stress.CAPACITY then
-  error("manual up exceeds SU capacity: " .. tostring(up_su))
+if up_su > stress.USABLE then
+  error("manual up exceeds usable SU: " .. tostring(up_su))
+end
+if outputs.rsc.rsc2 < 1000 then
+  error("manual up left the thrusters too slow to move the ship: " .. tostring(outputs.rsc.rsc2))
 end
 
 ship.vy = 0
@@ -702,8 +705,8 @@ state, outputs = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 local both_su = stress.consumed(outputs)
-if both_su > stress.CAPACITY then
-  error("manual up and sideways exceed SU capacity: " .. tostring(both_su))
+if both_su > stress.USABLE then
+  error("manual up and sideways exceed usable SU: " .. tostring(both_su))
 end
 if outputs.rsc.rsc11 < 400 then
   error("su limit cut the elevation props: " .. tostring(outputs.rsc.rsc11))
