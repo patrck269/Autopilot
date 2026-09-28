@@ -297,7 +297,7 @@ local last_outputs = runtime and nil
 while true do
   local event, a, b, c = os.pullEvent()
   if event == "rednet_message" then
-    pending = protocol.validate(b)
+    pending = protocol.keep(pending, b)
   elseif event == "monitor_touch" then
     local screen = screens[a]
     if screen ~= nil then

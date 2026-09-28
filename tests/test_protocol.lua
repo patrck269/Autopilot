@@ -20,3 +20,6 @@ A.eq(protocol.validate({ type = "diagnostic_set", device = "rsc10", rpm = 40 }).
 A.eq(protocol.validate({ type = "diagnostic_set", device = "relay7", side = "bottom", level = 15 }).side, "bottom", "diag relay")
 A.eq(protocol.validate({ type = "diagnostic_set", device = "relay7" }), nil, "diag relay missing side")
 A.eq(protocol.validate({ type = "diagnostic_elevation", rpm = 80 }).rpm, 80, "elevation")
+local queued = protocol.validate({ type = "set_altitude", y = 400 })
+A.eq(protocol.keep(queued, { type = "status", altitude = 1 }), queued, "a non-command does not drop altitude")
+A.eq(protocol.keep(queued, { type = "set_altitude", y = 250 }).y, 250, "a new altitude replaces the queued one")

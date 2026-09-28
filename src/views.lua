@@ -38,12 +38,15 @@ function M.navigation(sample)
 end
 
 function M.wrap_bearing(heading)
-  local circle = math.pi * 2
-  local bearing = heading % circle
-  if bearing < 0 then
-    bearing = bearing + circle
+  if heading == nil then
+    return 0
   end
-  return bearing
+  local degrees = heading * 180 / math.pi
+  degrees = degrees % 360
+  if degrees < 0 then
+    degrees = degrees + 360
+  end
+  return degrees
 end
 
 function M.compass(heading, width)

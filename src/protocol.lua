@@ -4,6 +4,14 @@ local function is_number(value)
   return type(value) == "number"
 end
 
+function M.keep(pending, raw)
+  local command = M.validate(raw)
+  if command == nil then
+    return pending
+  end
+  return command
+end
+
 function M.validate(msg)
   if type(msg) ~= "table" then
     return nil

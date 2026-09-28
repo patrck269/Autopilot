@@ -333,16 +333,10 @@ function M.tick(state, input)
     end
   end
   local function rest_elevation()
-    if state.elevation_equilibrium ~= nil and state.elevation_equilibrium > 0 then
-      return state.elevation_equilibrium
+    if state.pid_gains == nil then
+      state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
     end
-    if state.hover_rpm > 0 then
-      return state.hover_rpm
-    end
-    if cfg.hover_equilibrium ~= nil then
-      return cfg.hover_equilibrium
-    end
-    return 430
+    return pid.command(state.pid_gains, 0, ship.y, ship.y, 0, ship.dt or 0.05)
   end
   local stop_x = state.job == "hover" or (state.mode == "manual" and state.stick.x == 0)
   local stop_z = state.job == "hover" or (state.mode == "manual" and state.stick.y == 0)
@@ -434,9 +428,6 @@ function M.tick(state, input)
   outputs.rsc.rsc7 = rsc7
   outputs.rsc.rsc8 = rsc8
   outputs.rsc.rsc9 = rsc9
-  if state.brake_elev == nil and math.abs(ship.vy) < 0.05 and math.abs(ship.y - target_y) <= cfg.altitude_deadzone and state.hover_rpm > 0 then
-    state.elevation_equilibrium = state.hover_rpm
-  end
   local kind, which = outage.classify(ship.pitch_rate, ship.roll_rate, cfg.outage_threshold)
   local outage_name = nil
   local lift = 0

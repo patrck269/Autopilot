@@ -4,6 +4,7 @@ package.path = fs.combine(dir, "src") .. "/?.lua;" .. package.path
 
 local command_ui = require("command_ui")
 local command_status = require("command_status")
+local views = require("views")
 
 local function fill(x, y, w, h, bg)
   term.setBackgroundColor(bg)
@@ -53,7 +54,7 @@ local function describe(message, state)
     return "Altitude " .. tostring(message.y)
   end
   if message.type == "set_bearing" then
-    return "Bearing " .. tostring(message.bearing)
+    return "Bearing " .. string.format("%0.1f", views.wrap_bearing(message.bearing))
   end
   if message.type == "set_speed" then
     return "Speed " .. tostring(message.speed)

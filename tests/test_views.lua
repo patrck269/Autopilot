@@ -14,7 +14,7 @@ A.near(nav.overall, 10, 1e-6, "overall speed")
 A.near(nav.eta, 10, 1e-6, "eta")
 A.near(nav.drift, 10, 1e-6, "drift off the track")
 A.eq(nav.altitude, 100, "altitude")
-A.eq(nav.bearing, 1.2, "bearing")
+A.near(nav.bearing, 1.2 * 180 / math.pi, 1e-6, "bearing")
 local wrapped = views.navigation({
   x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0,
   heading = -1, mode = "manual", waypoint_x = 1, waypoint_z = 0,
@@ -22,7 +22,7 @@ local wrapped = views.navigation({
 if not (wrapped.bearing >= 0) then
   error("bearing must not be negative, got " .. tostring(wrapped.bearing))
 end
-local circle = math.pi * 2
+local circle = 360
 for step = -8, 8 do
   local heading = step * 0.7
   local spun = views.navigation({
@@ -62,7 +62,15 @@ A.eq(flight.vx, 3, "speed x")
 A.eq(flight.vy, -1, "speed y")
 A.eq(flight.vz, 4, "speed z")
 A.near(flight.rotation, 0.5, 1e-6, "rotation")
-A.eq(flight.bearing, 0.5, "flight bearing")
+A.near(flight.bearing, 0.5 * 180 / math.pi, 1e-6, "flight bearing")
+A.near(views.navigation({
+  x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0,
+  heading = 0, mode = "manual", waypoint_x = 0, waypoint_z = 0,
+}).bearing, 0, 1e-9, "yaw 0 displays as 0 degrees")
+A.near(views.navigation({
+  x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0,
+  heading = math.pi, mode = "manual", waypoint_x = 0, waypoint_z = 0,
+}).bearing, 180, 1e-6, "yaw pi displays as 180 degrees")
 local colors = {}
 for _, thruster in ipairs(flight.thrusters) do
   colors[thruster.id] = thruster.color

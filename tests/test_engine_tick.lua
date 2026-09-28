@@ -210,6 +210,11 @@ local hover = require("hover")
 
 local function elevation_accel(rpm, reverser)
   local specific = jobs.thrust(rpm, cfg.ship_mass) / cfg.ship_mass
+  local reference = pid.air_density(pid.reference_y())
+  local here = pid.air_density(ship.y)
+  if reference > 0 then
+    specific = specific * (here / reference)
+  end
   if reverser then
     return -(specific + 10)
   end
@@ -236,7 +241,8 @@ state.waypoint_z = 900
 state.bearing = 1.2
 state.hover_rpm = 430
 local descent_floor = ship.y
-local descent_rpm = 430
+local descent_ceiling = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, ship.y, ship.y, 0, 0.05)
+local descent_rpm = descent_ceiling
 local reverser_on = false
 local inside = false
 local function descend_step(command)
@@ -280,7 +286,7 @@ A.eq(state.mode, "manual", "released stick keeps the altitude mode")
 A.eq(state.job, "altitude", "released stick keeps the altitude job")
 A.eq(state.brake_elev, nil, "released stick does not latch the elevation brake")
 A.eq(reverser_on, false, "altitude descent keeps the reverser off")
-if descent_rpm >= 430 then
+if descent_rpm >= descent_ceiling then
   error("altitude descent did not lower elevation rpm, got " .. tostring(descent_rpm))
 end
 if not inside then
@@ -307,7 +313,8 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-A.eq(outputs.rsc.rsc11, 430, "steady altitude inside the band holds rpm")
+local density_hover = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, ship.y, ship.y, 0, ship.dt)
+A.near(outputs.rsc.rsc11, density_hover, 1e-3, "steady altitude holds the density hover")
 A.eq(outputs.relays.relay6, false, "steady altitude keeps the reverser off")
 local calibrated = pid.calibrate(cfg.hover_equilibrium, 0.05)
 A.eq(state.pid_gains.kp, calibrated.kp, "hold uses the calibrated kp")
@@ -527,7 +534,7 @@ ship.vx = 0
 ship.vz = 0
 ship.vy = 0
 ship.x = 0
-ship.y = 180
+ship.y = 100
 ship.z = 0
 ship.pitch_rate = 0
 ship.roll_rate = 0
@@ -797,3 +804,128 @@ state, outputs = engine_tick.tick(state, {
 })
 A.eq(outputs.rsc.rsc11, 430, "startup keeps the current elevation rpm")
 A.eq(outputs.rsc.rsc10, 0, "startup does not add x thrust")
+
+local density_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
+local function density_hold(world_y)
+  return pid.command(density_gains, 0, world_y, world_y, 0, 0.05)
+end
+local function tick_hold(world_y)
+  ship.y = world_y
+  ship.vy = 0
+  ship.vx = 0
+  ship.vz = 0
+  ship.heading = 0
+  ship.dt = 0.05
+  local holding = engine_tick.new_state()
+  holding.mode = "manual"
+  holding.job = "altitude"
+  holding.altitude = world_y
+  holding.altitude_set = true
+  holding.pid_integral = 80
+  local stepped
+  holding, stepped = engine_tick.tick(holding, {
+    ship = ship,
+    command = nil,
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+    current_elevation_rpm = cfg.hover_equilibrium,
+  })
+  return stepped.rsc.rsc11, holding
+end
+local low_rpm = tick_hold(62)
+local ref_rpm = tick_hold(pid.reference_y())
+local high_rpm, high_state = tick_hold(1000)
+A.near(ref_rpm, cfg.hover_equilibrium, 1e-3, "hover rpm at 100 blocks is the equilibrium")
+A.near(ref_rpm, density_hold(pid.reference_y()), 1e-3, "engine tick uses the density command")
+if not (low_rpm < ref_rpm and ref_rpm < high_rpm) then
+  error("elevation rpm did not rise with altitude: " .. tostring(low_rpm) .. " " .. tostring(ref_rpm) .. " " .. tostring(high_rpm))
+end
+if high_rpm > cfg.max_rpm then
+  error("y=1000 hover exceeded the rpm cap: " .. tostring(high_rpm))
+end
+A.near(high_rpm, density_hold(1000), 1e-2, "y=1000 hover is the density scale, not the integral")
+ship.y = 1000
+ship.vy = 0
+local again
+high_state, again = engine_tick.tick(high_state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+})
+A.near(again.rsc.rsc11, high_rpm, 1e-2, "a second tick at y=1000 does not ratchet")
+A.eq(high_state.pid_gains.equilibrium, cfg.hover_equilibrium, "density rpm is not stored as the equilibrium")
+
+local function settle_then(next_altitude, label)
+  ship.x = 0
+  ship.y = 100
+  ship.z = 0
+  ship.vx = 0
+  ship.vy = 0
+  ship.vz = 0
+  ship.heading = 0
+  ship.dt = 0.05
+  state = engine_tick.new_state()
+  state.mode = "manual"
+  local target = 400
+  for _ = 1, 6000 do
+    local command = nil
+    if state.job ~= "altitude" then
+      command = { type = "set_altitude", y = target }
+    end
+    local stepped
+    state, stepped = engine_tick.tick(state, {
+      ship = ship,
+      command = command,
+      su = 1,
+      ready = true,
+      stick_fresh = false,
+      config = cfg,
+      current_elevation_rpm = cfg.hover_equilibrium,
+    })
+    local net = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+    ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
+    ship.vy = ship.vy + net * 0.05
+    if math.abs(ship.y - target) <= 0.5 and math.abs(ship.vy) < 0.05 then
+      break
+    end
+  end
+  if math.abs(ship.y - target) > 0.5 or math.abs(ship.vy) >= 0.05 then
+    error(label .. " did not settle, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
+  end
+  local settled_rpm
+  state, outputs = engine_tick.tick(state, {
+    ship = ship,
+    command = nil,
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+  })
+  settled_rpm = outputs.rsc.rsc11
+  local hover_rpm = density_hold(ship.y)
+  if math.abs(settled_rpm - hover_rpm) / hover_rpm > 0.02 then
+    error(label .. " kept climbing after arrival, rpm " .. tostring(settled_rpm) .. " hover " .. tostring(hover_rpm))
+  end
+  state, outputs = engine_tick.tick(state, {
+    ship = ship,
+    command = { type = "set_altitude", y = next_altitude },
+    su = 1,
+    ready = true,
+    stick_fresh = false,
+    config = cfg,
+  })
+  A.eq(state.altitude, next_altitude, label .. " stores the new altitude")
+  if next_altitude > target and outputs.rsc.rsc11 <= settled_rpm then
+    error(label .. " did not climb toward the new altitude, rpm " .. tostring(outputs.rsc.rsc11))
+  end
+  if next_altitude < target and outputs.rsc.rsc11 >= settled_rpm then
+    error(label .. " did not descend toward the new altitude, rpm " .. tostring(outputs.rsc.rsc11))
+  end
+end
+settle_then(500, "higher altitude")
+settle_then(300, "lower altitude")

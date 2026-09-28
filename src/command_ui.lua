@@ -127,7 +127,11 @@ function M.key(state, name, down)
       return state, protocol.validate({ type = "set_altitude", y = number })
     end
     if field == "bearing" then
-      return state, protocol.validate({ type = "set_bearing", bearing = number })
+      local degrees = number % 360
+      if degrees < 0 then
+        degrees = degrees + 360
+      end
+      return state, protocol.validate({ type = "set_bearing", bearing = degrees * math.pi / 180 })
     end
     return state, protocol.validate({ type = "set_speed", speed = number })
   end
