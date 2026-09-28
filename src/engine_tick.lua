@@ -401,6 +401,33 @@ function M.tick(state, input)
       ship.dt
     )
     state.pid_integral = integral
+    local raw_err = target_y - ship.y
+    local max_err = state.pid_gains.max_rate * state.pid_gains.kd / state.pid_gains.kp
+    if max_err > 0 then
+      local clamped = raw_err
+      if clamped > max_err then
+        clamped = max_err
+      elseif clamped < -max_err then
+        clamped = -max_err
+      end
+      local excess = raw_err - clamped
+      if excess ~= 0 then
+        local reach = math.abs(excess) / (math.abs(excess) + max_err)
+        local nudge = state.pid_gains.equilibrium * pid.thrust_scale(ship.y) * reach
+        if excess < 0 then
+          nudge = -nudge
+        end
+        if rev then
+          rpm = rpm - nudge
+        else
+          rpm = rpm + nudge
+        end
+        if rpm < 0 then
+          rpm = 0
+        end
+        rpm = config.clamp_rpm(rpm)
+      end
+    end
     state.hover_rpm = rpm
     if rev then
       elev_reverse = true

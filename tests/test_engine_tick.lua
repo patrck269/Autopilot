@@ -1221,3 +1221,124 @@ state = cruise_state()
 state, outputs = step_ship(state, nil, true, false)
 state, outputs = step_ship(state, typed, true, false)
 A.eq(state.altitude, 150, "typed altitude replaces the cruise target")
+
+local function mode_ship()
+  fresh_ship(180, 0)
+  ship.heading = 0
+end
+
+local function enter_mode(mode)
+  mode_ship()
+  local entered = engine_tick.new_state()
+  local entry
+  entered, entry = step_ship(entered, { type = "set_mode", mode = mode }, true, false)
+  return entered, entry.rsc.rsc11
+end
+
+local function side_of(rpm, hover)
+  if rpm > hover + 0.5 then
+    return "above"
+  end
+  if rpm < hover - 0.5 then
+    return "below"
+  end
+  return "hold"
+end
+
+local function assert_altitude_move(mode, target, entry_rpm, state, outputs, label)
+  local hover = density_hold(ship.y)
+  A.eq(state.altitude, target, label .. " stores the altitude")
+  A.eq(state.job, "altitude", label .. " tracks altitude")
+  local want = "above"
+  if target < ship.y then
+    want = "below"
+  end
+  local got = side_of(outputs.rsc.rsc11, hover)
+  if got ~= want then
+    error(label .. " rpm " .. tostring(outputs.rsc.rsc11) .. " is " .. got .. " hover " .. tostring(hover))
+  end
+  if math.abs(outputs.rsc.rsc11 - entry_rpm) <= 0.5 then
+    error(label .. " kept the mode rpm " .. tostring(entry_rpm))
+  end
+  local followed
+  state, followed = step_ship(state, nil, true, false)
+  A.eq(state.altitude, target, label .. " keeps the altitude")
+  if side_of(followed.rsc.rsc11, density_hold(ship.y)) ~= want then
+    error(label .. " left the altitude on the next step, rpm " .. tostring(followed.rsc.rsc11))
+  end
+  return state, followed
+end
+
+for _, mode in ipairs({ "manual", "semi", "auto" }) do
+  local entered, entry_rpm = enter_mode(mode)
+  local above
+  entered, above = step_ship(entered, { type = "set_altitude", y = 500 }, true, false)
+  entered = assert_altitude_move(mode, 500, entry_rpm, entered, above, mode .. " altitude above")
+  entered, entry_rpm = enter_mode(mode)
+  local below
+  entered, below = step_ship(entered, { type = "set_altitude", y = 80 }, true, false)
+  assert_altitude_move(mode, 80, entry_rpm, entered, below, mode .. " altitude below")
+
+  entered, entry_rpm = enter_mode(mode)
+  entered, above = step_ship(entered, { type = "set_altitude", y = 500 }, true, false)
+  local opposite
+  entered, opposite = step_ship(entered, { type = "set_altitude", y = 80 }, true, false)
+  assert_altitude_move(mode, 80, above.rsc.rsc11, entered, opposite, mode .. " second altitude")
+  local kept = protocol.keep({ type = "set_altitude", y = 80 }, { noise = true })
+  A.eq(kept.y, 80, mode .. " non-command keeps the queued altitude")
+  entered, opposite = step_ship(entered, nil, true, false)
+  A.eq(entered.altitude, 80, mode .. " non-command step keeps the target")
+end
+
+local latched, latched_out = enter_mode("manual")
+latched, latched_out = step_ship(latched, { type = "set_altitude", y = 320 }, true, false)
+for _, mode in ipairs({ "semi", "auto", "manual" }) do
+  latched, latched_out = step_ship(latched, { type = "set_mode", mode = mode }, true, false)
+  latched, latched_out = step_ship(latched, nil, true, false)
+  A.eq(latched.altitude, 320, "mode " .. mode .. " keeps the latched altitude")
+  if side_of(latched_out.rsc.rsc11, density_hold(ship.y)) ~= "above" then
+    error("mode " .. mode .. " froze elevation at " .. tostring(latched_out.rsc.rsc11))
+  end
+end
+
+local typed_ui = command_ui.new()
+local typed_msg
+typed_ui, typed_msg = command_ui.key(typed_ui, "y", true)
+typed_ui, typed_msg = command_ui.key(typed_ui, "two", true)
+typed_ui, typed_msg = command_ui.key(typed_ui, "six", true)
+typed_ui, typed_msg = command_ui.key(typed_ui, "zero", true)
+typed_ui, typed_msg = command_ui.key(typed_ui, "enter", true)
+A.eq(typed_msg.type, "set_altitude", "typed altitude command")
+A.eq(typed_msg.y, 260, "typed altitude number")
+local typed_state, typed_entry = enter_mode("semi")
+local typed_out
+typed_state, typed_out = step_ship(typed_state, typed_msg, true, false)
+assert_altitude_move("semi", 260, typed_entry, typed_state, typed_out, "typed altitude after semi")
+
+local function assert_cancel_holds(label)
+  local before_alt = state.altitude
+  local before_rpm = outputs.rsc.rsc11
+  state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+  A.eq(state.job, nil, label .. " clears the job")
+  A.eq(state.altitude_set, false, label .. " does not latch a hover")
+  A.eq(state.altitude, before_alt, label .. " does not write a new altitude")
+  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " does not retarget elevation")
+  A.eq(outputs.relays.relay6, false, label .. " does not reverse into a hover")
+  state, outputs = step_ship(state, { type = "set_altitude", y = 260 }, true, false)
+  assert_altitude_move("idle", 260, before_rpm, state, outputs, label .. " altitude after cancel")
+end
+
+mode_ship()
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
+for _ = 1, 8 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+assert_cancel_holds("cancel from a climb")
+
+mode_ship()
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "manual" }, true, false)
+state, outputs = step_ship(state, nil, true, false)
+assert_cancel_holds("cancel after manual chose an rpm")
