@@ -142,7 +142,6 @@ local function apply_command(state, command)
     state.mode = "manual"
     state.stick = { x = command.x, y = command.y, z = command.z }
     if command.x ~= 0 or command.y ~= 0 or command.z ~= 0 then
-      state.job = nil
       state.cancel = false
     end
     return
@@ -159,6 +158,7 @@ local function apply_command(state, command)
     return
   end
   if command.type == "set_altitude" then
+    state.cancel = false
     state.altitude = command.y
     state.altitude_set = true
     state.job = "altitude"
@@ -194,6 +194,7 @@ local function apply_command(state, command)
     state.mode = "auto"
     state.phase = "climb"
     state.job = nil
+    state.altitude_set = false
     return
   end
   if command.type == "set_profile" then
@@ -259,17 +260,19 @@ function M.tick(state, input)
     state.job = "hover"
     state.phase = "hold"
     state.altitude = ship.y
+    state.altitude_set = true
     state.bearing = ship.heading
     state.waypoint_x = nil
     state.waypoint_z = nil
     state.target_speed = 0
+    state.pid_integral = 0
     state.cancel = false
   end
 
   local manual_fly = state.mode == "manual" and (state.stick.x ~= 0 or state.stick.y ~= 0 or state.stick.z ~= 0)
-  if state.job == "hover" then
+  if state.job == "hover" and not manual_fly then
     vertical = "hold"
-  elseif state.job == "altitude" then
+  elseif state.job == "altitude" and not manual_fly then
     vertical = "hold"
   elseif manual_fly or state.mode == "manual" then
     vx, vy, vz = manual.velocity(state.stick.x, state.stick.y, state.stick.z)
@@ -326,7 +329,7 @@ function M.tick(state, input)
     state.hover_rpm = cfg.climb_rpm * 0.25
   end
   local target_y = state.altitude
-  if state.job == nil and state.mode == "auto" then
+  if state.job == nil and state.mode == "auto" and not state.altitude_set then
     if vertical == "descend" then
       target_y = 329
     else
@@ -339,9 +342,10 @@ function M.tick(state, input)
     end
     return pid.command(state.pid_gains, 0, ship.y, ship.y, 0, ship.dt or 0.05)
   end
+  local stick_vertical = manual_fly and state.stick.z ~= 0
   local stop_x = state.job == "hover" or (state.mode == "manual" and state.stick.x == 0)
   local stop_z = state.job == "hover" or (state.mode == "manual" and state.stick.y == 0)
-  local stop_y = state.job == "hover" or (state.job ~= "altitude" and state.mode == "manual" and state.stick.z == 0)
+  local stop_y = (not stick_vertical) and (state.job == "hover" or (state.job ~= "altitude" and state.mode == "manual" and state.stick.z == 0))
   local x_hold, z_hold, y_hold = 0, 0, rest_elevation()
   if stop_x then
     x_hold, state.brake_x = jobs.hold_stop(state.brake_x, ship.vx, cfg.ship_mass, 0, false)
@@ -376,7 +380,7 @@ function M.tick(state, input)
   if state.pid_gains == nil then
     state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
   end
-  local track_altitude = (not stop_y) and (state.job == "altitude" or (state.mode == "auto" and not manual_fly))
+  local track_altitude = (not stop_y) and (not stick_vertical) and (state.job == "altitude" or (state.mode == "auto" and not manual_fly))
   if track_altitude then
     local rpm, integral, rev = pid.command(
       state.pid_gains,

@@ -962,3 +962,277 @@ local function settle_then(next_altitude, label)
 end
 settle_then(500, "higher altitude")
 settle_then(300, "lower altitude")
+
+local protocol = require("protocol")
+local command_ui = require("command_ui")
+
+local function fresh_ship(y, vy)
+  ship.x = 0
+  ship.y = y
+  ship.z = 0
+  ship.vx = 0
+  ship.vy = vy or 0
+  ship.vz = 0
+  ship.pitch = 0
+  ship.roll = 0
+  ship.heading = 0.4
+  ship.pitch_rate = 0
+  ship.roll_rate = 0
+  ship.dt = 0.05
+end
+
+local function step_ship(state, command, ready, fresh)
+  return engine_tick.tick(state, {
+    ship = ship,
+    command = command,
+    su = 1,
+    ready = ready ~= false,
+    stick_fresh = fresh == true,
+    config = cfg,
+    current_elevation_rpm = cfg.hover_equilibrium,
+  })
+end
+
+local function cruise_state()
+  local holding = engine_tick.new_state()
+  holding.mode = "auto"
+  holding.phase = "climb"
+  holding.profile = "cruise"
+  holding.waypoint_x = 2000
+  holding.waypoint_z = 1600
+  return holding
+end
+
+local function refuse_band(altitude, sample, label)
+  if math.abs(altitude - sample) > 0.5 then
+    error(label .. " target " .. tostring(altitude) .. " missed ship " .. tostring(sample))
+  end
+  if sample < 2000 and altitude >= 2000 then
+    error(label .. " target " .. tostring(altitude) .. " is at or above 2000")
+  end
+  if altitude >= 999999 then
+    error(label .. " target is the zero-density sentinel")
+  end
+  if math.abs(sample - 400) > 0.5 and math.abs(altitude - 400) <= 1e-6 then
+    error(label .. " chased 400")
+  end
+  if math.abs(sample - 329) > 0.5 and math.abs(altitude - 329) <= 1e-6 then
+    error(label .. " chased 329")
+  end
+end
+
+local function apply_physics(outputs)
+  local ay = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true)
+  ship.y = ship.y + ship.vy * 0.05 + 0.5 * ay * 0.0025
+  ship.vy = ship.vy + ay * 0.05
+  return ay
+end
+
+local function stop_cancel(state, sample, outputs)
+  local y0 = sample
+  local guard = 0
+  while guard < 600 do
+    local rev = outputs.relays.relay6 == true
+    local hover = density_hold(ship.y)
+    if not rev and outputs.rsc.rsc11 > hover + 0.5 then
+      error("cancel commanded a climb, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+    end
+    apply_physics(outputs)
+    if ship.vy < -1e-6 then
+      error("cancel drove vertical speed negative " .. tostring(ship.vy))
+    end
+    if ship.y - y0 > 1 then
+      error("cancel climbed " .. tostring(ship.y - y0) .. " m")
+    end
+    if math.abs(ship.vy) < 0.05 then
+      break
+    end
+    state, outputs = step_ship(state, nil, true, false)
+    if state.altitude ~= sample then
+      error("cancel target moved to " .. tostring(state.altitude) .. " from " .. tostring(sample))
+    end
+    guard = guard + 1
+  end
+  if math.abs(ship.vy) >= 0.05 then
+    error("cancel did not stop the climb, vy " .. tostring(ship.vy))
+  end
+  state, outputs = step_ship(state, nil, true, false)
+  if state.altitude ~= sample then
+    error("settled cancel target moved to " .. tostring(state.altitude))
+  end
+  local hover = density_hold(ship.y)
+  if outputs.relays.relay6 == true then
+    error("settled cancel left the reverser on")
+  end
+  if outputs.rsc.rsc11 > hover + 0.5 then
+    error("settled cancel still climbs, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+  end
+  return state
+end
+
+fresh_ship(120, 1)
+state = cruise_state()
+local outputs
+for _ = 1, 25 do
+  state, outputs = step_ship(state, nil, true, false)
+  apply_physics(outputs)
+end
+if ship.y >= 400 or ship.vy <= 0 then
+  error("automatic cruise was not climbing, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
+end
+if state.job ~= nil then
+  error("automatic cruise invented an altitude job")
+end
+local sample = ship.y
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+refuse_band(state.altitude, sample, "cruise cancel")
+A.eq(state.job, "hover", "cruise cancel hovers")
+state = stop_cancel(state, state.altitude, outputs)
+
+fresh_ship(140, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_altitude", y = 600 }, true, false)
+local climbed = 0
+while ship.vy < 3 and climbed < 400 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+  climbed = climbed + 1
+end
+if ship.vy < 3 or ship.y >= 600 then
+  error("altitude climb did not get underway, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
+end
+sample = ship.y
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+refuse_band(state.altitude, sample, "altitude-job cancel")
+state = stop_cancel(state, state.altitude, outputs)
+
+fresh_ship(150, 0)
+state = cruise_state()
+state.phase = "hold"
+sample = ship.y
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+refuse_band(state.altitude, sample, "level cancel")
+local level_hover = density_hold(sample)
+if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > level_hover + 0.5 then
+  error("level cancel commanded a climb, rpm " .. tostring(outputs.rsc.rsc11))
+end
+local level_target = state.altitude
+state, outputs = step_ship(state, nil, true, false)
+A.eq(state.altitude, level_target, "level cancel keeps the captured altitude")
+if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > level_hover + 0.5 then
+  error("level cancel climbed on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+end
+
+fresh_ship(450, -1)
+state = cruise_state()
+state.phase = "descend"
+state, outputs = step_ship(state, nil, true, false)
+sample = ship.y
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+refuse_band(state.altitude, sample, "descent cancel")
+state, outputs = step_ship(state, nil, true, false)
+A.eq(state.altitude, sample, "descent cancel keeps the capture")
+
+fresh_ship(1000, 2)
+state = cruise_state()
+sample = ship.y
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+refuse_band(state.altitude, sample, "high cancel")
+local high_hover = density_hold(sample)
+if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > high_hover + 0.5 then
+  error("high cancel commanded a climb above the density hover")
+end
+
+local function expect_track(state, outputs, wanted, label)
+  A.eq(state.altitude, wanted, label .. " target")
+  local hover = density_hold(ship.y)
+  if wanted > ship.y + 0.5 and outputs.rsc.rsc11 <= hover then
+    error(label .. " did not climb toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+  end
+  if wanted < ship.y - 0.5 and outputs.rsc.rsc11 >= hover then
+    error(label .. " did not descend toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+  end
+  state, outputs = step_ship(state, nil, true, false)
+  A.eq(state.altitude, wanted, label .. " held")
+  hover = density_hold(ship.y)
+  if wanted > ship.y + 0.5 and outputs.rsc.rsc11 <= hover then
+    error(label .. " dropped the climb on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+  end
+  if wanted < ship.y - 0.5 and outputs.rsc.rsc11 >= hover then
+    error(label .. " dropped the descent on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+  end
+  return state, outputs
+end
+
+fresh_ship(180, 3)
+state = cruise_state()
+state, outputs = step_ship(state, nil, true, false)
+state, outputs = step_ship(state, { type = "set_altitude", y = 250 }, true, false)
+state, outputs = expect_track(state, outputs, 250, "set altitude during cruise")
+
+fresh_ship(450, -1)
+state = cruise_state()
+state.phase = "descend"
+state, outputs = step_ship(state, nil, true, false)
+state, outputs = step_ship(state, { type = "set_altitude", y = 360 }, true, false)
+state, outputs = expect_track(state, outputs, 360, "set altitude during descent")
+
+fresh_ship(180, 2)
+state = cruise_state()
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+state, outputs = step_ship(state, { type = "set_altitude", y = 240 }, true, false)
+state, outputs = expect_track(state, outputs, 240, "set altitude after cancel")
+
+fresh_ship(160, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_altitude", y = 500 }, true, false)
+climbed = 0
+while ship.vy < 2 and climbed < 400 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+  climbed = climbed + 1
+end
+if ship.vy < 2 then
+  error("approach never left the hover")
+end
+state, outputs = step_ship(state, { type = "set_altitude", y = 120 }, true, false)
+state, outputs = expect_track(state, outputs, 120, "set altitude during an approach")
+
+fresh_ship(180, 1)
+state = cruise_state()
+state, outputs = step_ship(state, nil, true, false)
+state, outputs = step_ship(state, { type = "set_altitude", y = 260 }, true, false)
+state, outputs = step_ship(state, { type = "stick", x = 1, y = 0, z = 0 }, true, true)
+state, outputs = step_ship(state, nil, true, false)
+state, outputs = expect_track(state, outputs, 260, "set altitude after a stick")
+
+fresh_ship(200, 0)
+state = engine_tick.new_state()
+state.mode = "auto"
+state, outputs = step_ship(state, { type = "cancel_jobs" }, false, false)
+state, outputs = step_ship(state, { type = "set_altitude", y = 275 }, true, false)
+state, outputs = expect_track(state, outputs, 275, "set altitude over a waiting cancel")
+
+local queued = protocol.keep({ type = "set_altitude", y = 275 }, { noise = true })
+A.eq(queued.type, "set_altitude", "a non-command leaves the queued altitude")
+A.eq(queued.y, 275, "a non-command keeps the queued number")
+fresh_ship(190, 0)
+state = cruise_state()
+state, outputs = step_ship(state, queued, true, false)
+state, outputs = step_ship(state, nil, true, false)
+A.eq(state.altitude, 275, "a following empty step keeps the set altitude")
+
+local ui = command_ui.new()
+local typed
+ui, typed = command_ui.key(ui, "y", true)
+ui, typed = command_ui.key(ui, "one", true)
+ui, typed = command_ui.key(ui, "five", true)
+ui, typed = command_ui.key(ui, "zero", true)
+ui, typed = command_ui.key(ui, "enter", true)
+A.eq(typed.type, "set_altitude", "Y then digits then enter")
+A.eq(typed.y, 150, "typed altitude")
+fresh_ship(110, 1)
+state = cruise_state()
+state, outputs = step_ship(state, nil, true, false)
+state, outputs = step_ship(state, typed, true, false)
+A.eq(state.altitude, 150, "typed altitude replaces the cruise target")
