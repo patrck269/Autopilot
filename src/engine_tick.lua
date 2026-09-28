@@ -8,6 +8,7 @@ local mix = require("mix")
 local diagnostic = require("diagnostic")
 local jobs = require("jobs")
 local pid = require("pid")
+local stress = require("stress")
 
 local M = {}
 
@@ -510,6 +511,9 @@ function M.tick(state, input)
     end
   end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
+  if state.mode == "manual" then
+    stress.limit_manual(outputs)
+  end
 
   return state, clamp_outputs(outputs), status_of(state, ship, input.su, outage_name)
 end

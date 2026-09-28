@@ -3,6 +3,7 @@ local A = dofile("tests/assert.lua")
 local engine_tick = require("engine_tick")
 local config = require("config")
 local pid = require("pid")
+local stress = require("stress")
 
 local cfg = config.default()
 local ship = {
@@ -683,6 +684,30 @@ if outputs.rsc.rsc11 <= cfg.hover_equilibrium then
   error("manual up did not raise elevation rpm: " .. tostring(outputs.rsc.rsc11))
 end
 A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")
+local up_su = stress.consumed(outputs)
+if up_su > stress.CAPACITY then
+  error("manual up exceeds SU capacity: " .. tostring(up_su))
+end
+
+ship.vy = 0
+ship.y = 62
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 1, z = 1 },
+  su = 1,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+local both_su = stress.consumed(outputs)
+if both_su > stress.CAPACITY then
+  error("manual up and sideways exceed SU capacity: " .. tostring(both_su))
+end
+if outputs.rsc.rsc11 < 400 then
+  error("su limit cut the elevation props: " .. tostring(outputs.rsc.rsc11))
+end
 
 ship.heading = 0
 ship.vy = 0
