@@ -172,11 +172,18 @@ local function apply_command(state, command)
   end
   if command.type == "cancel_jobs" then
     state.cancel = true
-    state.job = "hover"
+    state.job = nil
+    state.altitude_set = false
     state.phase = "hold"
     state.target_speed = 0
+    state.ramp_speed = 0
+    state.ramp_rate = 0
     state.waypoint_x = nil
     state.waypoint_z = nil
+    state.pid_integral = 0
+    state.brake_x = nil
+    state.brake_z = nil
+    state.brake_elev = nil
     return
   end
   if command.type == "set_bearing" then
@@ -256,16 +263,19 @@ function M.tick(state, input)
   local vertical = "hold"
   local ref = 3
   if state.cancel then
-    state.mode = "semi"
-    state.job = "hover"
+    state.mode = "idle"
+    state.job = nil
+    state.altitude_set = false
     state.phase = "hold"
-    state.altitude = ship.y
-    state.altitude_set = true
-    state.bearing = ship.heading
     state.waypoint_x = nil
     state.waypoint_z = nil
     state.target_speed = 0
+    state.ramp_speed = 0
+    state.ramp_rate = 0
     state.pid_integral = 0
+    state.brake_x = nil
+    state.brake_z = nil
+    state.brake_elev = nil
     state.cancel = false
   end
 

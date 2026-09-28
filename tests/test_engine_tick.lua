@@ -569,14 +569,35 @@ end
 if ship.vx < 35 then
   error("semi-automatic did not reach the 35 m/s cap, vx " .. tostring(ship.vx))
 end
-local min_vx, max_vx
-state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx = fly_until_rest(state, { type = "cancel_jobs" })
-A.eq(state.job, "hover", "cancel hovers")
+local before_cancel
+state, before_cancel = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+local speed_altitude = state.altitude
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "cancel_jobs" },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(state.job, nil, "cancel clears the speed job")
+A.eq(state.mode, "idle", "cancel does not start a hover mode")
+A.eq(state.altitude_set, false, "cancel does not latch an altitude")
+A.eq(state.altitude, speed_altitude, "cancel does not aim at a new altitude")
 A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
-if min_vx < -0.05 then
-  error("semi-cap cancel reversed to " .. tostring(min_vx) .. " m/s")
-end
-assert_stopped("cancel", state, outputs, peak_x, peak_y, peak_z)
+A.eq(state.target_speed, 0, "cancel clears the speed")
+A.eq(outputs.rsc.rsc10, 0, "cancel drops the speed command")
+A.eq(outputs.relays.relay6, false, "cancel does not reverse elevation")
+A.near(outputs.rsc.rsc11, before_cancel.rsc.rsc11, 1e-6, "cancel leaves the elevation throttle alone")
 
 ship.vx = 0
 ship.vz = 0
@@ -624,17 +645,32 @@ end
 if ship.vy < shell then
   error("climb did not reach the shell rate, vy " .. tostring(ship.vy))
 end
-local min_vy, reverser_steps
-state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx, min_vy, reverser_steps = fly_until_rest(state, { type = "cancel_jobs" })
-if min_vy < -1e-6 then
-  error("climb cancel reversed to " .. tostring(min_vy) .. " m/s")
-end
-if reverser_steps < 1 then
-  error("climb cancel did not use the elevation reverser")
-end
-A.eq(state.job, "hover", "climb cancel hovers")
-A.eq(state.waypoint_x, nil, "climb cancel clears the waypoint")
-assert_stopped("climb cancel", state, outputs, peak_x, peak_y, peak_z)
+local climbing
+state, climbing = engine_tick.tick(state, {
+  ship = ship,
+  command = nil,
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+local climb_altitude = state.altitude
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "cancel_jobs" },
+  su = 1,
+  ready = true,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(state.job, nil, "climb cancel clears the altitude job")
+A.eq(state.mode, "idle", "climb cancel does not start a hover")
+A.eq(state.altitude_set, false, "climb cancel does not latch the ship altitude")
+A.eq(state.altitude, climb_altitude, "climb cancel keeps the old number without chasing it")
+A.eq(outputs.relays.relay6, false, "climb cancel does not reverse elevation")
+A.near(outputs.rsc.rsc11, climbing.rsc.rsc11, 1e-6, "climb cancel does not retarget elevation")
 
 ship.vx = 4
 ship.vz = 3
@@ -1003,24 +1039,6 @@ local function cruise_state()
   return holding
 end
 
-local function refuse_band(altitude, sample, label)
-  if math.abs(altitude - sample) > 0.5 then
-    error(label .. " target " .. tostring(altitude) .. " missed ship " .. tostring(sample))
-  end
-  if sample < 2000 and altitude >= 2000 then
-    error(label .. " target " .. tostring(altitude) .. " is at or above 2000")
-  end
-  if altitude >= 999999 then
-    error(label .. " target is the zero-density sentinel")
-  end
-  if math.abs(sample - 400) > 0.5 and math.abs(altitude - 400) <= 1e-6 then
-    error(label .. " chased 400")
-  end
-  if math.abs(sample - 329) > 0.5 and math.abs(altitude - 329) <= 1e-6 then
-    error(label .. " chased 329")
-  end
-end
-
 local function apply_physics(outputs)
   local ay = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true)
   ship.y = ship.y + ship.vy * 0.05 + 0.5 * ay * 0.0025
@@ -1028,46 +1046,25 @@ local function apply_physics(outputs)
   return ay
 end
 
-local function stop_cancel(state, sample, outputs)
-  local y0 = sample
-  local guard = 0
-  while guard < 600 do
-    local rev = outputs.relays.relay6 == true
-    local hover = density_hold(ship.y)
-    if not rev and outputs.rsc.rsc11 > hover + 0.5 then
-      error("cancel commanded a climb, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
-    end
-    apply_physics(outputs)
-    if ship.vy < -1e-6 then
-      error("cancel drove vertical speed negative " .. tostring(ship.vy))
-    end
-    if ship.y - y0 > 1 then
-      error("cancel climbed " .. tostring(ship.y - y0) .. " m")
-    end
-    if math.abs(ship.vy) < 0.05 then
-      break
-    end
-    state, outputs = step_ship(state, nil, true, false)
-    if state.altitude ~= sample then
-      error("cancel target moved to " .. tostring(state.altitude) .. " from " .. tostring(sample))
-    end
-    guard = guard + 1
+local function assert_killed(state, outputs, before_alt, before_rpm, label)
+  A.eq(state.job, nil, label .. " clears the job")
+  A.eq(state.mode, "idle", label .. " does not enter hover")
+  A.eq(state.altitude_set, false, label .. " does not latch an altitude")
+  A.eq(state.altitude, before_alt, label .. " does not choose a new altitude")
+  A.eq(state.waypoint_x, nil, label .. " clears the waypoint")
+  A.eq(state.target_speed, 0, label .. " clears the speed")
+  A.eq(outputs.relays.relay6, false, label .. " leaves the reverser off")
+  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " leaves elevation where it was")
+  if state.altitude >= 2000 or state.altitude >= 999999 then
+    error(label .. " stored an impossible altitude " .. tostring(state.altitude))
   end
-  if math.abs(ship.vy) >= 0.05 then
-    error("cancel did not stop the climb, vy " .. tostring(ship.vy))
-  end
+  local kept = state.altitude
   state, outputs = step_ship(state, nil, true, false)
-  if state.altitude ~= sample then
-    error("settled cancel target moved to " .. tostring(state.altitude))
-  end
-  local hover = density_hold(ship.y)
-  if outputs.relays.relay6 == true then
-    error("settled cancel left the reverser on")
-  end
-  if outputs.rsc.rsc11 > hover + 0.5 then
-    error("settled cancel still climbs, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
-  end
-  return state
+  A.eq(state.job, nil, label .. " stays cleared")
+  A.eq(state.mode, "idle", label .. " stays idle")
+  A.eq(state.altitude, kept, label .. " does not adopt a cruise altitude")
+  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " still does not retarget elevation")
+  return state, outputs
 end
 
 fresh_ship(120, 1)
@@ -1083,11 +1080,10 @@ end
 if state.job ~= nil then
   error("automatic cruise invented an altitude job")
 end
-local sample = ship.y
+local cruise_altitude = state.altitude
+local cruise_rpm = outputs.rsc.rsc11
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-refuse_band(state.altitude, sample, "cruise cancel")
-A.eq(state.job, "hover", "cruise cancel hovers")
-state = stop_cancel(state, state.altitude, outputs)
+state, outputs = assert_killed(state, outputs, cruise_altitude, cruise_rpm, "cruise cancel")
 
 fresh_ship(140, 0)
 state = engine_tick.new_state()
@@ -1101,47 +1097,36 @@ end
 if ship.vy < 3 or ship.y >= 600 then
   error("altitude climb did not get underway, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
 end
-sample = ship.y
+local approach_altitude = state.altitude
+local approach_rpm = outputs.rsc.rsc11
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-refuse_band(state.altitude, sample, "altitude-job cancel")
-state = stop_cancel(state, state.altitude, outputs)
+state, outputs = assert_killed(state, outputs, approach_altitude, approach_rpm, "altitude-job cancel")
 
 fresh_ship(150, 0)
 state = cruise_state()
 state.phase = "hold"
-sample = ship.y
-state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-refuse_band(state.altitude, sample, "level cancel")
-local level_hover = density_hold(sample)
-if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > level_hover + 0.5 then
-  error("level cancel commanded a climb, rpm " .. tostring(outputs.rsc.rsc11))
-end
-local level_target = state.altitude
 state, outputs = step_ship(state, nil, true, false)
-A.eq(state.altitude, level_target, "level cancel keeps the captured altitude")
-if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > level_hover + 0.5 then
-  error("level cancel climbed on the next step, rpm " .. tostring(outputs.rsc.rsc11))
-end
+local level_altitude = state.altitude
+local level_rpm = outputs.rsc.rsc11
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+state, outputs = assert_killed(state, outputs, level_altitude, level_rpm, "level cancel")
 
 fresh_ship(450, -1)
 state = cruise_state()
 state.phase = "descend"
 state, outputs = step_ship(state, nil, true, false)
-sample = ship.y
+local descent_altitude = state.altitude
+local descent_rpm = outputs.rsc.rsc11
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-refuse_band(state.altitude, sample, "descent cancel")
-state, outputs = step_ship(state, nil, true, false)
-A.eq(state.altitude, sample, "descent cancel keeps the capture")
+state, outputs = assert_killed(state, outputs, descent_altitude, descent_rpm, "descent cancel")
 
 fresh_ship(1000, 2)
 state = cruise_state()
-sample = ship.y
+state, outputs = step_ship(state, nil, true, false)
+local high_altitude = state.altitude
+local high_rpm = outputs.rsc.rsc11
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-refuse_band(state.altitude, sample, "high cancel")
-local high_hover = density_hold(sample)
-if outputs.relays.relay6 ~= true and outputs.rsc.rsc11 > high_hover + 0.5 then
-  error("high cancel commanded a climb above the density hover")
-end
+state, outputs = assert_killed(state, outputs, high_altitude, high_rpm, "high cancel")
 
 local function expect_track(state, outputs, wanted, label)
   A.eq(state.altitude, wanted, label .. " target")
