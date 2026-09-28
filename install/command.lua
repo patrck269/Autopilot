@@ -5,6 +5,7 @@ local files = {
   { "src/command_ui.lua", "src/command_ui.lua" },
   { "src/protocol.lua", "src/protocol.lua" },
   { "src/command_status.lua", "src/command_status.lua" },
+  { "src/views.lua", "src/views.lua" },
 }
 
 local function download(urlPath, dest)
