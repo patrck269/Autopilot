@@ -23,10 +23,34 @@ function M.consumed(outputs)
   return su
 end
 
-function M.limit_manual(outputs)
+function M.budget(measured, capacity, previous)
+  local room = M.USABLE
+  if type(capacity) ~= "number" or capacity <= 0 then
+    return room
+  end
+  local external = 0
+  if type(measured) == "number" then
+    external = measured - (previous or 0)
+    if external < 0 then
+      external = 0
+    end
+  end
+  local free = capacity - external
+  if free < 0 then
+    free = 0
+  end
+  local share = free * M.USABLE / M.CAPACITY
+  if share < room then
+    room = share
+  end
+  return room
+end
+
+function M.limit_manual(outputs, measured, capacity, previous)
   if outputs == nil or outputs.rsc == nil then
     return outputs
   end
+  local room = M.budget(measured, capacity, previous)
   local rsc = outputs.rsc
   local elev_su = math.abs(rsc.rsc11 or 0) * M.ELEVATION_PROPS * M.ELEVATION_IMPACT
   local rcs_abs = 0
@@ -34,11 +58,11 @@ function M.limit_manual(outputs)
     rcs_abs = rcs_abs + math.abs(rsc[name] or 0)
   end
   local rcs_su = rcs_abs * M.RCS_IMPACT
-  if elev_su + rcs_su <= M.USABLE then
+  if elev_su + rcs_su <= room then
     return outputs
   end
-  if elev_su >= M.USABLE then
-    local max_elev = M.USABLE / (M.ELEVATION_PROPS * M.ELEVATION_IMPACT)
+  if elev_su >= room then
+    local max_elev = room / (M.ELEVATION_PROPS * M.ELEVATION_IMPACT)
     if (rsc.rsc11 or 0) < 0 then
       rsc.rsc11 = -max_elev
     else
@@ -49,14 +73,14 @@ function M.limit_manual(outputs)
     end
     return outputs
   end
-  local scale = (M.USABLE - elev_su) / rcs_su
+  local scale = (room - elev_su) / rcs_su
   for _, name in ipairs(RCS) do
     rsc[name] = (rsc[name] or 0) * scale
   end
-  if M.consumed(outputs) > M.USABLE then
+  if M.consumed(outputs) > room then
     local left = M.consumed(outputs) - elev_su
     if left > 0 then
-      local fix = (M.USABLE - elev_su) / left
+      local fix = (room - elev_su) / left
       for _, name in ipairs(RCS) do
         rsc[name] = (rsc[name] or 0) * fix
       end

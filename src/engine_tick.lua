@@ -53,6 +53,7 @@ function M.new_state()
     last_horiz = 0,
     balance_time = 0,
     balance_side = nil,
+    modeled_su = 0,
     diagnostic = false,
     hover_diag = false,
     diag_selection = nil,
@@ -552,7 +553,8 @@ function M.tick(state, input)
     end
   end
   outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
-  stress.limit_manual(outputs)
+  stress.limit_manual(outputs, input.su, input.su_capacity, state.modeled_su)
+  state.modeled_su = stress.consumed(outputs)
 
   return state, clamp_outputs(outputs), status_of(state, ship, input.su, outage_name)
 end

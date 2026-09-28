@@ -330,6 +330,7 @@ while true do
       ship = sample,
       command = command,
       su = consumed,
+      su_capacity = capacity,
       ready = ready,
       stick_fresh = command ~= nil and command.type == "stick",
       config = cfg,

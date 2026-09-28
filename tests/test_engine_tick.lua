@@ -729,6 +729,42 @@ if outputs.rsc.rsc2 < 1000 then
 end
 
 ship.vy = 0
+ship.y = 120
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 0, z = 1 },
+  su = 0,
+  su_capacity = 200000,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+local z_room = 200000 * stress.USABLE / stress.CAPACITY
+local z_su = stress.consumed(outputs)
+if z_su > z_room + 1 then
+  error("z thrusters called for more SU than available: " .. tostring(z_su))
+end
+if outputs.rsc.rsc2 <= 0 or outputs.rsc.rsc3 <= 0 or outputs.rsc.rsc4 <= 0 or outputs.rsc.rsc5 <= 0 then
+  error("z thrusters were shut off to satisfy the stress limit")
+end
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 0, z = 1 },
+  su = z_su,
+  su_capacity = 200000,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+z_su = stress.consumed(outputs)
+if z_su > z_room + 1 then
+  error("z thrusters still called for more SU than available: " .. tostring(z_su))
+end
+
+ship.vy = 0
 ship.y = 62
 state = engine_tick.new_state()
 state, outputs = engine_tick.tick(state, {
