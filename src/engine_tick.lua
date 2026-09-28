@@ -51,6 +51,7 @@ function M.new_state()
     stop_distance = 0,
     measured_accel = nil,
     last_horiz = 0,
+    speed_seeded = false,
     balance_time = 0,
     balance_side = nil,
     modeled_su = 0,
@@ -252,13 +253,16 @@ function M.tick(state, input)
 
   local outputs = mix.zero()
   local horiz = math.sqrt(ship.vx * ship.vx + ship.vz * ship.vz)
-  if ship.dt > 0 then
+  if not state.speed_seeded then
+    state.last_horiz = horiz
+    state.speed_seeded = true
+  elseif ship.dt > 0 then
     local delta = horiz - state.last_horiz
     if delta > 0 then
       state.measured_accel = delta / ship.dt
     end
+    state.last_horiz = horiz
   end
-  state.last_horiz = horiz
 
   local vx, vy, vz = 0, 0, 0
   local vertical = "hold"

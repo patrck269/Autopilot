@@ -1416,3 +1416,25 @@ state = engine_tick.new_state()
 state, outputs = step_ship(state, { type = "set_mode", mode = "manual" }, true, false)
 state, outputs = step_ship(state, nil, true, false)
 assert_cancel_holds("cancel after manual chose an rpm")
+
+fresh_ship(450, 0)
+ship.vx = 20
+ship.x = 0
+ship.z = 0
+state = engine_tick.new_state()
+state.mode = "auto"
+state.phase = "climb"
+state.waypoint_x = 80
+state.waypoint_z = 0
+state, outputs = step_ship(state, nil, true, false)
+if state.measured_accel ~= nil and state.measured_accel > 50 then
+  error("first speed sample was stored as acceleration " .. tostring(state.measured_accel))
+end
+ship.vx = 20.2
+state, outputs = step_ship(state, nil, true, false)
+if state.measured_accel == nil or state.measured_accel < 3 or state.measured_accel > 5 then
+  error("cruise did not record the real acceleration, got " .. tostring(state.measured_accel))
+end
+ship.x = 40
+state, outputs = step_ship(state, nil, true, false)
+A.eq(state.phase, "brake", "cruise brakes inside the measured stopping distance")
