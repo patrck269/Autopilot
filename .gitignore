@@ -1,0 +1,3 @@
+tools/ship-shell/bridge.local.json
+__pycache__/
+*.pyc

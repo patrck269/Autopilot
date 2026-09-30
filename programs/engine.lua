@@ -10,6 +10,8 @@ local protocol = require("protocol")
 local monitors = require("monitors")
 local mfd = require("mfd")
 local views = require("views")
+local shell_mod = require("shell")
+local link = require("link")
 
 local cfg = config.default()
 local state = engine_tick.new_state()
@@ -61,6 +63,11 @@ local function wrap_devices()
 end
 
 local devices = wrap_devices()
+local session = shell_mod.new_session(state, cfg, devices)
+session.engine_tick = engine_tick
+session.runtime = runtime
+session.config = config
+session.protocol = protocol
 local stress_gauge = devices.stressometer
 local elevation_device = devices.rsc11
 local speed_gauge = devices.speedometer
@@ -93,6 +100,7 @@ local pages, ordered_names = attach_monitors()
 
 local function refresh_peripherals()
   devices = wrap_devices()
+  session.devices = devices
   stress_gauge = devices.stressometer
   elevation_device = devices.rsc11
   speed_gauge = devices.speedometer
@@ -319,59 +327,107 @@ local tick_timer = os.startTimer(0.05)
 local pending = nil
 local last_outputs = runtime and nil
 
-while true do
-  local event, a, b, c = os.pullEvent()
-  if event == "rednet_message" then
-    pending = protocol.keep(pending, b)
-  elseif event == "peripheral" or event == "peripheral_detach" then
-    refresh_peripherals()
-  elseif event == "monitor_touch" then
-    local screen = screens[a]
-    if screen ~= nil then
-      local selected = mfd.hit(screen.w, screen.h, b, c)
-      if selected ~= nil then
-        pages[a] = selected
+local function flight_loop()
+  while true do
+    local event, a, b, c = os.pullEvent()
+    if event == "rednet_message" then
+      if not shell_mod.note_watchdog(session, b) then
+        pending = protocol.keep(pending, b)
       end
+    elseif event == "peripheral" or event == "peripheral_detach" then
+      refresh_peripherals()
+    elseif event == "monitor_touch" then
+      local screen = screens[a]
+      if screen ~= nil then
+        local selected = mfd.hit(screen.w, screen.h, b, c)
+        if selected ~= nil then
+          pages[a] = selected
+        end
+      end
+    elseif event == "timer" and a == tick_timer then
+      local sample = collect_ship()
+      local consumed = 0
+      local capacity = 0
+      if stress_gauge ~= nil and stress_gauge.getStress ~= nil then
+        consumed = stress_gauge.getStress()
+      end
+      if stress_gauge ~= nil and stress_gauge.getStressCapacity ~= nil then
+        capacity = stress_gauge.getStressCapacity()
+      end
+      local elevation_rpm = nil
+      if elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
+        elevation_rpm = elevation_device.getTargetSpeed()
+      end
+      session.ship = sample
+      session.su = consumed
+      session.cfg = cfg
+      session.devices = devices
+      session.state = state
+      local command = pending
+      pending = nil
+      shell_mod.apply_latch(session, state, command)
+      local outputs
+      local status
+      state, outputs, status = engine_tick.tick(state, {
+        ship = sample,
+        command = command,
+        su = consumed,
+        su_capacity = capacity,
+        ready = ready,
+        stick_fresh = command ~= nil and command.type == "stick",
+        config = cfg,
+        current_elevation_rpm = elevation_rpm,
+      })
+      session.state = state
+      local stress = views.stress(consumed, capacity, outputs)
+      status.su = stress.consumed
+      status.su_remaining = stress.remaining
+      status.su_x_axis_propellers = stress.x_axis_propellers
+      status.su_z_axis_propellers = stress.z_axis_propellers
+      status.su_rcs = stress.rcs
+      runtime.apply(outputs, devices)
+      status.speed = status.horizontal_speed
+      rednet.broadcast(status)
+      draw(status, outputs, sample, stress)
+      last_outputs = outputs
+      tick_timer = os.startTimer(0.05)
     end
-  elseif event == "timer" and a == tick_timer then
-    local sample = collect_ship()
-    local consumed = 0
-    local capacity = 0
-    if stress_gauge ~= nil and stress_gauge.getStress ~= nil then
-      consumed = stress_gauge.getStress()
-    end
-    if stress_gauge ~= nil and stress_gauge.getStressCapacity ~= nil then
-      capacity = stress_gauge.getStressCapacity()
-    end
-    local elevation_rpm = nil
-    if elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
-      elevation_rpm = elevation_device.getTargetSpeed()
-    end
-    local command = pending
-    pending = nil
-    local outputs
-    local status
-    state, outputs, status = engine_tick.tick(state, {
-      ship = sample,
-      command = command,
-      su = consumed,
-      su_capacity = capacity,
-      ready = ready,
-      stick_fresh = command ~= nil and command.type == "stick",
-      config = cfg,
-      current_elevation_rpm = elevation_rpm,
-    })
-    local stress = views.stress(consumed, capacity, outputs)
-    status.su = stress.consumed
-    status.su_remaining = stress.remaining
-    status.su_x_axis_propellers = stress.x_axis_propellers
-    status.su_z_axis_propellers = stress.z_axis_propellers
-    status.su_rcs = stress.rcs
-    runtime.apply(outputs, devices)
-    status.speed = status.horizontal_speed
-    rednet.broadcast(status)
-    draw(status, outputs, sample, stress)
-    last_outputs = outputs
-    tick_timer = os.startTimer(0.05)
   end
 end
+
+local function shell_loop()
+  local open = function(path, mode)
+    return fs.open(path, mode)
+  end
+  local token = link.read_text(open, "debug.token")
+  local url = link.read_text(open, "debug.url")
+  if not shell_mod.should_dial(token) or url == nil then
+    return
+  end
+  local next_status = 0
+  local function on_message(msg)
+    return shell_mod.handle(session, msg, { fs = fs, clock = os.clock })
+  end
+  local function on_idle()
+    if session.busy then
+      return nil
+    end
+    local now = os.clock()
+    if now < next_status then
+      return nil
+    end
+    next_status = now + 1
+    return shell_mod.status(session)
+  end
+  while true do
+    local ok, err = pcall(function()
+      link.serve(url, token, "engine", on_message, on_idle)
+    end)
+    if not ok then
+      print(err)
+    end
+    sleep(5)
+  end
+end
+
+parallel.waitForAll(flight_loop, shell_loop)

@@ -1,27 +1,14 @@
 local BASE = "https://raw.githubusercontent.com/patrck269/Autopilot/2524ee3aa90ecd948c99c282b3653cf4b8e179e9/"
 
 local files = {
-  { "programs/engine.lua", "startup.lua" },
-  { "src/auto.lua", "src/auto.lua" },
-  { "src/config.lua", "src/config.lua" },
-  { "src/diagnostic.lua", "src/diagnostic.lua" },
-  { "src/engine_tick.lua", "src/engine_tick.lua" },
-  { "src/hover.lua", "src/hover.lua" },
-  { "src/jobs.lua", "src/jobs.lua" },
-  { "src/manual.lua", "src/manual.lua" },
-  { "src/mfd.lua", "src/mfd.lua" },
-  { "src/mix.lua", "src/mix.lua" },
-  { "src/monitors.lua", "src/monitors.lua" },
-  { "src/outage.lua", "src/outage.lua" },
-  { "src/pid.lua", "src/pid.lua" },
-  { "src/protocol.lua", "src/protocol.lua" },
-  { "src/runtime.lua", "src/runtime.lua" },
-  { "src/speed.lua", "src/speed.lua" },
-  { "src/stress.lua", "src/stress.lua" },
-  { "src/startup.lua", "src/startup.lua" },
-  { "src/views.lua", "src/views.lua" },
-  { "src/shell.lua", "src/shell.lua" },
+  { "programs/watchdog.lua", "startup.lua" },
+  { "src/watchdog.lua", "src/watchdog.lua" },
   { "src/link.lua", "src/link.lua" },
+  { "src/shell.lua", "src/shell.lua" },
+  { "src/config.lua", "src/config.lua" },
+  { "src/mix.lua", "src/mix.lua" },
+  { "src/speed.lua", "src/speed.lua" },
+  { "src/runtime.lua", "src/runtime.lua" },
 }
 
 local function download(urlPath, dest)

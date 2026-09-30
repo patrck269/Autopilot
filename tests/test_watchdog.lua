@@ -1,0 +1,76 @@
+package.path = "src/?.lua;" .. package.path
+local A = dofile("tests/assert.lua")
+local watchdog = require("watchdog")
+
+local function arm(state, now)
+  return watchdog.step(state, { type = "arm", engine_id = 7, now = now or 0 })
+end
+
+local state, action = arm(watchdog.new(), 0)
+A.eq(state.latched, false, "arming does not latch")
+A.eq(action.write_zero, false, "arming does not write")
+A.eq(state.armed, true, "arming watches")
+print("pass: arming does not latch")
+
+state, action = watchdog.step(state, { type = "status", sender = 7, mode = "idle", now = 2 })
+A.eq(state.last_status_at, 2, "engine status refreshes the timer")
+state, action = watchdog.step(state, { type = "tick", now = 4.9 })
+A.eq(state.latched, false, "silence under three seconds stays open")
+state, action = watchdog.step(state, { type = "tick", now = 5 })
+A.eq(state.latched, true, "three seconds of silence latches")
+A.eq(action.write_zero, true, "silence latch writes zero")
+A.eq(action.broadcast, true, "silence latch tells the engine")
+print("pass: engine status refreshes the silence timer")
+print("pass: three seconds without engine status latches zero")
+
+state = arm(watchdog.new(), 0)
+state, action = watchdog.step(state, { type = "status", sender = 4, mode = "idle", now = 2 })
+A.eq(state.last_status_at, 0, "status from another computer does not refresh")
+state, action = watchdog.step(state, { type = "tick", now = 3 })
+A.eq(state.latched, true, "a foreign status does not postpone the latch")
+print("pass: status from any other computer does not refresh the timer")
+
+state, action = arm(watchdog.new(), 0)
+state, action = watchdog.step(state, { type = "zero", now = 0 })
+A.eq(state.latched, true, "zero latches immediately")
+A.eq(action.write_zero, true, "zero writes immediately")
+print("pass: immediate zero latches")
+
+local held = state
+held, action = watchdog.step(held, { type = "disarm", now = 0 })
+A.eq(held.latched, true, "disarm leaves a latch held")
+held, action = watchdog.step(held, { type = "tick", now = 1 })
+A.eq(action.write_zero, true, "a latch keeps writing across disarm")
+A.eq(held.latched, true, "writes do not drop the latch")
+print("pass: disarm does not stop a latch already held")
+
+held, action = watchdog.step(held, { type = "status", sender = 7, mode = "idle", now = 1 })
+A.eq(held.latched, true, "status does not clear a latch")
+print("pass: status does not clear a latch")
+
+held, action = watchdog.step(held, { type = "clear", now = 2 })
+A.eq(held.latched, false, "clear drops the latch")
+A.eq(action.broadcast, false, "clear tells the engine the latch is off")
+A.eq(action.write_zero, false, "clear does not write another zero")
+
+state, action = arm(watchdog.new(), 0)
+state, action = watchdog.step(state, { type = "zero", now = 0 })
+state, action = watchdog.step(state, { type = "clear_emergency", now = 1 })
+A.eq(state.latched, false, "clear emergency drops the latch")
+A.eq(action.broadcast, false, "clear emergency broadcasts the drop")
+print("pass: clear drops the latch")
+print("pass: clear emergency drops the latch")
+
+state, action = arm(watchdog.new(), 0)
+state, action = watchdog.step(state, { type = "socket_drop", now = 1 })
+A.eq(state.armed, true, "a socket drop without disarm stays armed")
+state, action = watchdog.step(state, { type = "status", sender = 7, mode = "hover", now = 1.2 })
+A.eq(state.armed, false, "status while unlatched disarms after a socket drop")
+A.eq(state.latched, false, "that status does not latch")
+print("pass: socket drop without disarm stays armed until an unlatched status")
+
+state, action = arm(watchdog.new(), 0)
+state, action = watchdog.step(state, { type = "disarm", now = 0 })
+state, action = watchdog.step(state, { type = "tick", now = 10 })
+A.eq(state.armed, false, "disarm stops the silence watch")
+A.eq(state.latched, false, "a disarmed watch does not latch")
