@@ -1,6 +1,6 @@
 # Ship autopilot
 
-The engine-room computer flies the ship, draws the four command-center monitors, and is the only program that touches a relay or a rotation speed controller. The command-center computer is a keyboard on the wired network. The pocket computer is a remote, a GPS return control, and a diagnostic screen. It talks to the engine computer through ender modems.
+The engine-room computer flies the ship and draws the four command-center monitors. It is the only program that commands relays and rotation speed controllers in flight. The ship debug shell's watchdog may force those outputs to zero while a debug latch is held. The command-center computer is a keyboard on the wired network. The pocket computer is a remote, a GPS return control, and a diagnostic screen. It talks to the engine computer through ender modems.
 
 World X and Z are the horizontal coordinates. World Y is altitude. The requirements draft calls the horizontal pair x,y. This spec uses X and Z.
 
