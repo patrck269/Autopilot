@@ -367,7 +367,7 @@ function M.tick(state, input)
   local target_y = state.altitude
   if state.job == nil and state.mode == "auto" and not state.altitude_set
       and state.waypoint_x ~= nil and state.waypoint_z ~= nil then
-    if vertical == "descend" then
+    if vertical == "descend" or state.phase == "hold" then
       target_y = 329
     else
       target_y = 400

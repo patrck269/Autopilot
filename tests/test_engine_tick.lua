@@ -1618,3 +1618,76 @@ if math.abs(outputs.rsc.rsc11 - density_hold(ship.y)) > 1 then
   error("semi after the ship moved did not hold that altitude, rpm " .. tostring(outputs.rsc.rsc11))
 end
 A.eq(state.altitude, ship.y, "semi after the ship moved holds that altitude")
+
+fresh_ship(120, 0)
+ship.x = 0
+ship.z = 0
+ship.vx = 0
+ship.vz = 0
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_waypoint", x = 400, z = 0 }, true, false)
+local cruise_ticks = 0
+while state.phase ~= "track" and cruise_ticks < 8000 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+  cruise_ticks = cruise_ticks + 1
+end
+if state.phase ~= "track" or ship.y < 400 then
+  error("cruise did not reach track, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y))
+end
+local track_ticks = 0
+while (math.abs(ship.y - 400) > 15 or math.abs(ship.vy) > 1) and track_ticks < 4000 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+  track_ticks = track_ticks + 1
+end
+if state.phase ~= "track" or math.abs(ship.y - 400) > 15 or math.abs(ship.vy) > 1 then
+  error("track did not hold 400, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
+end
+if outputs.rsc.rsc11 < density_hold(ship.y) - 150 then
+  error("track left the cruise altitude of 400, rpm " .. tostring(outputs.rsc.rsc11))
+end
+for _ = 1, 80 do
+  ship.vx = ship.vx + 0.1
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+ship.x = 388
+ship.vx = 8
+apply_physics(outputs)
+state, outputs = step_ship(state, nil, true, false)
+if state.phase ~= "brake" then
+  error("cruise did not brake, phase " .. tostring(state.phase) .. " accel " .. tostring(state.measured_accel))
+end
+if math.abs(ship.y - 400) <= 30 and outputs.rsc.rsc11 < density_hold(ship.y) - 150 then
+  error("brake left the cruise altitude of 400, rpm " .. tostring(outputs.rsc.rsc11))
+end
+ship.x = 400
+ship.vx = 0
+ship.vz = 0
+local arrived = false
+for _ = 1, 8000 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+  if state.phase == "hold" and ship.y <= 329 then
+    arrived = true
+    break
+  end
+end
+if not arrived then
+  error("cruise did not arrive, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y))
+end
+local arrival_hover = density_hold(ship.y)
+if outputs.rsc.rsc11 > arrival_hover + 50 then
+  error("arrival climbed toward 400, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(arrival_hover))
+end
+local arrival_y = ship.y
+for _ = 1, 600 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+if ship.y > 360 or ship.y > arrival_y + 30 then
+  error("hold after descent climbed toward 400, y " .. tostring(ship.y))
+end
+A.eq(state.phase, "hold", "arrival stays in hold")
+A.eq(state.waypoint_x, 400, "arrival keeps the waypoint")
