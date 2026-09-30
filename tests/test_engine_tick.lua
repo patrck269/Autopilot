@@ -17,8 +17,15 @@ local blocked, outputs, status = engine_tick.tick(state, {
   ship = ship, command = { type = "set_mode", mode = "manual" },
   su = 10, ready = false, stick_fresh = false, config = cfg,
 })
-A.eq(blocked.mode, "blocked", "not ready")
+A.eq(blocked.mode, "manual", "a mode command survives while not ready")
+A.eq(status.mode, "blocked", "status reports blocked while not ready")
 A.eq(outputs.rsc.rsc10, 0, "no thrust when blocked")
+local resumed
+blocked, resumed = engine_tick.tick(blocked, {
+  ship = ship, command = nil,
+  su = 10, ready = true, stick_fresh = false, config = cfg,
+})
+A.eq(blocked.mode, "manual", "the mode is still there once the ship is ready")
 
 state = engine_tick.new_state()
 state, outputs = engine_tick.tick(state, {
@@ -1460,3 +1467,154 @@ A.eq(state.phase, "track", "a smaller speed gain does not brake outside the demo
 if outputs.rsc.rsc10 < 0 then
   error("cruise reversed outside the demonstrated stopping distance, rsc10 " .. tostring(outputs.rsc.rsc10))
 end
+
+fresh_ship(120, 0)
+ship.x = 2000
+ship.z = -800
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
+local mode_hover = density_hold(ship.y)
+if outputs.rsc.rsc11 > mode_hover + 50 then
+  error("automatic mode climbed without an altitude or a waypoint, rpm " .. tostring(outputs.rsc.rsc11))
+end
+A.eq(state.altitude, 120, "automatic mode keeps the altitude the ship is at")
+A.eq(state.waypoint_x, nil, "automatic mode does not invent a waypoint")
+for _ = 1, 200 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+if ship.y > 160 then
+  error("automatic mode left the ship altitude for the cruise band, y " .. tostring(ship.y))
+end
+state, outputs = step_ship(state, { type = "set_altitude", y = 150 }, true, false)
+A.eq(state.altitude, 150, "set altitude replaces the mode")
+if outputs.rsc.rsc11 <= density_hold(ship.y) then
+  error("set altitude after automatic did not climb, rpm " .. tostring(outputs.rsc.rsc11))
+end
+for _ = 1, 400 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+if ship.y > 190 then
+  error("set altitude after automatic ran away, y " .. tostring(ship.y))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
+mode_hover = density_hold(ship.y)
+if math.abs(outputs.rsc.rsc11 - mode_hover) > 1 then
+  error("semi mode did not hold altitude, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(mode_hover))
+end
+state, outputs = step_ship(state, nil, true, false)
+if math.abs(outputs.rsc.rsc11 - density_hold(ship.y)) > 1 then
+  error("semi mode left the altitude on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "stick", x = 0, y = 0, z = -1 }, true, true)
+if outputs.rsc.rsc2 < 0 or outputs.rsc.rsc3 < 0 or outputs.rsc.rsc4 < 0 or outputs.rsc.rsc5 < 0 then
+  error("down command spun the upward thrusters the other way, rsc2 " .. tostring(outputs.rsc.rsc2))
+end
+if outputs.rsc.rsc11 >= cfg.hover_equilibrium then
+  error("down command did not lower elevation, rpm " .. tostring(outputs.rsc.rsc11))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state.mode = "auto"
+state.job = "altitude"
+state.altitude = 180
+state.altitude_set = true
+local blocked_state, blocked_outputs, blocked_status = step_ship(state, nil, false, false)
+A.eq(blocked_state.mode, "auto", "a missing peripheral does not erase the flight mode")
+A.eq(blocked_state.altitude, 180, "a missing peripheral keeps the altitude")
+A.eq(blocked_status.mode, "blocked", "status reports blocked while not ready")
+A.eq(blocked_outputs.rsc.rsc10, 0, "not ready does not cruise")
+blocked_state, blocked_outputs = step_ship(blocked_state, nil, true, false)
+A.eq(blocked_state.mode, "auto", "flight mode returns when the peripheral returns")
+A.eq(blocked_state.altitude, 180, "the altitude is still the command")
+if blocked_outputs.rsc.rsc11 <= density_hold(ship.y) then
+  error("the altitude command was dropped while a peripheral was missing, rpm " .. tostring(blocked_outputs.rsc.rsc11))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "emergency" },
+  su = 1,
+  ready = false,
+  stick_fresh = false,
+  config = cfg,
+  current_elevation_rpm = 430,
+})
+A.eq(outputs.rsc.rsc11, 0, "emergency cuts elevation while a peripheral is missing")
+A.eq(state.emergency, true, "emergency latches while a peripheral is missing")
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state.mode = "auto"
+state.job = "altitude"
+state.altitude = 160
+state.altitude_set = true
+state, outputs = step_ship(state, { type = "diagnostic_enter", hover = false }, true, false)
+state, outputs = step_ship(state, { type = "emergency" }, true, false)
+state, outputs = step_ship(state, { type = "clear_emergency" }, true, false)
+A.eq(state.diagnostic, false, "emergency closes diagnostic")
+A.eq(state.mode, "idle", "emergency does not leave the ship in diagnostic")
+A.eq(state.emergency, false, "clear releases the stop")
+state, outputs = step_ship(state, { type = "set_altitude", y = 200 }, true, false)
+A.eq(state.altitude, 200, "altitude works after emergency leaves diagnostic")
+A.eq(state.job, "altitude", "altitude job works after emergency leaves diagnostic")
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_altitude", y = 2000 }, true, false)
+if outputs.rsc.rsc11 <= density_hold(ship.y) then
+  error("setup altitude did not climb, rpm " .. tostring(outputs.rsc.rsc11))
+end
+local cancelled_rpm = outputs.rsc.rsc11
+state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
+A.eq(state.altitude, 2000, "cancel leaves the old altitude number")
+A.near(outputs.rsc.rsc11, cancelled_rpm, 1e-4, "cancel leaves elevation rpm")
+state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
+if outputs.rsc.rsc11 > density_hold(ship.y) + 50 then
+  error("automatic after cancel resumed the cancelled altitude, rpm " .. tostring(outputs.rsc.rsc11))
+end
+A.eq(state.altitude, ship.y, "automatic after cancel holds the ship altitude")
+state, outputs = step_ship(state, nil, true, false)
+if outputs.rsc.rsc11 > density_hold(ship.y) + 50 then
+  error("automatic after cancel climbed on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
+ship.y = 180
+ship.vy = 0
+state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
+if outputs.rsc.rsc11 < density_hold(ship.y) - 50 then
+  error("automatic after the ship moved returned to the old altitude, rpm " .. tostring(outputs.rsc.rsc11))
+end
+A.eq(state.altitude, ship.y, "automatic after the ship moved holds that altitude")
+local held_y = ship.y
+for _ = 1, 200 do
+  apply_physics(outputs)
+  state, outputs = step_ship(state, nil, true, false)
+end
+if math.abs(ship.y - held_y) > 20 then
+  error("automatic after the ship moved left that altitude, y " .. tostring(ship.y))
+end
+
+fresh_ship(120, 0)
+state = engine_tick.new_state()
+state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
+ship.y = 180
+ship.vy = 0
+state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
+if math.abs(outputs.rsc.rsc11 - density_hold(ship.y)) > 1 then
+  error("semi after the ship moved did not hold that altitude, rpm " .. tostring(outputs.rsc.rsc11))
+end
+A.eq(state.altitude, ship.y, "semi after the ship moved holds that altitude")

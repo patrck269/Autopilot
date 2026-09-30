@@ -32,8 +32,8 @@ function M.new_state()
     target_speed = 0,
     ramp_rate = 0,
     ramp_speed = 0,
-    waypoint_x = 0,
-    waypoint_z = 0,
+    waypoint_x = nil,
+    waypoint_z = nil,
     profile = "warp",
     phase = "climb",
     hover_rpm = 0,
@@ -105,7 +105,12 @@ local function apply_command(state, command)
   end
   if command.type == "emergency" then
     state.emergency = true
+    if state.mode == "diagnostic" then
+      state.mode = "idle"
+    end
     state.diagnostic = false
+    state.hover_diag = false
+    state.diag_selection = nil
     return
   end
   if command.type == "clear_emergency" then
@@ -230,14 +235,27 @@ function M.tick(state, input)
     end
     state.seeded = true
   end
-  if input.ready == false then
-    state.mode = "blocked"
-    local held = mix.zero()
-    held.rsc.rsc11 = state.hover_rpm
-    return state, clamp_outputs(held), status_of(state, ship, input.su, nil)
+  if input.command ~= nil
+      and input.command.type == "set_mode"
+      and not state.emergency
+      and not state.diagnostic
+      and state.mode == input.command.mode
+      and not state.altitude_set
+      and state.job ~= "altitude"
+      and ship ~= nil
+      and ship.y ~= nil then
+    state.altitude = ship.y
+    state.pid_integral = 0
   end
   if state.emergency then
     return state, clamp_outputs(mix.zero()), status_of(state, input.ship, input.su, nil)
+  end
+  if input.ready == false then
+    local held = mix.zero()
+    held.rsc.rsc11 = state.hover_rpm
+    local status = status_of(state, ship, input.su, nil)
+    status.mode = "blocked"
+    return state, clamp_outputs(held), status
   end
   if state.diagnostic then
     local hover_opt = nil
@@ -347,7 +365,8 @@ function M.tick(state, input)
     state.hover_rpm = cfg.climb_rpm * 0.25
   end
   local target_y = state.altitude
-  if state.job == nil and state.mode == "auto" and not state.altitude_set then
+  if state.job == nil and state.mode == "auto" and not state.altitude_set
+      and state.waypoint_x ~= nil and state.waypoint_z ~= nil then
     if vertical == "descend" then
       target_y = 329
     else
@@ -398,7 +417,9 @@ function M.tick(state, input)
   if state.pid_gains == nil then
     state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
   end
-  local track_altitude = (not stop_y) and (not stick_vertical) and (state.job == "altitude" or (state.mode == "auto" and not manual_fly))
+  local track_altitude = (not stop_y) and (not stick_vertical) and (
+    state.job == "altitude" or state.mode == "semi" or (state.mode == "auto" and not manual_fly)
+  )
   if track_altitude then
     local rpm, integral, rev = pid.command(
       state.pid_gains,
@@ -534,11 +555,8 @@ function M.tick(state, input)
     outputs.rsc.rsc3 = u3
     outputs.rsc.rsc4 = u4
     outputs.rsc.rsc5 = u5
-    if state.mode == "manual" and state.stick.z ~= 0 then
-      local vert_rpm = manual.rcs_rpm(math.abs(state.stick.z), cfg.ship_mass)
-      if state.stick.z < 0 then
-        vert_rpm = -vert_rpm
-      end
+    if state.mode == "manual" and state.stick.z > 0 then
+      local vert_rpm = manual.rcs_rpm(state.stick.z, cfg.ship_mass)
       outputs.rsc.rsc2 = vert_rpm
       outputs.rsc.rsc3 = vert_rpm
       outputs.rsc.rsc4 = vert_rpm
