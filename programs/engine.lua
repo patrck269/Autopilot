@@ -332,8 +332,9 @@ local function flight_loop()
     local event, a, b, c = os.pullEvent()
     if event == "rednet_message" then
       pending = shell_mod.ingest(session, pending, b, protocol.keep, function(message)
-        -- Pocket clear arrives on the ender modem. Repeat it so the wired watchdog hears it.
-        rednet.broadcast(message)
+        shell_mod.repeat_wired(message, function(side, channel, reply, payload)
+          peripheral.call(side, "transmit", channel, reply, payload)
+        end, cfg.names.wired_modem, os.getComputerID())
       end)
     elseif event == "peripheral" or event == "peripheral_detach" then
       refresh_peripherals()

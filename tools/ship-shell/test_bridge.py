@@ -230,6 +230,47 @@ def start_shell_session():
     return proc, root
 
 
+def lua_turn(proc, messages):
+    proc.stdin.write(("turn\n%d\n" % len(messages)).encode("ascii"))
+    for msg in messages:
+        code = msg.get("code") or ""
+        if isinstance(code, str):
+            code = code.encode("utf-8")
+        ident = "" if msg.get("id") is None else str(msg.get("id"))
+        header = ("%s\n%s\n%d\n" % (msg.get("type") or "", ident, len(code))).encode("ascii")
+        proc.stdin.write(header)
+        if code:
+            proc.stdin.write(code)
+    proc.stdin.flush()
+    status = _lua_line(proc)
+    if status != "ok":
+        raise SystemExit("shell turn failed: %s" % _lua_line(proc))
+    count = int(_lua_line(proc))
+    replies = []
+    for _ in range(count):
+        ident = _lua_line(proc)
+        ok = _lua_line(proc) == "1"
+        err = _lua_line(proc)
+        nvalues = int(_lua_line(proc))
+        values = []
+        for _value in range(nvalues):
+            kind = _lua_line(proc)
+            text = _lua_line(proc)
+            if kind == "n":
+                values.append(float(text) if "." in text else int(text))
+            elif kind == "b":
+                values.append(text == "true")
+            else:
+                values.append(text)
+        nout = int(_lua_line(proc))
+        output = proc.stdout.read(nout).decode("utf-8") if nout else ""
+        frame = {"type": "result", "id": ident, "ok": ok, "values": values, "output": output}
+        if err:
+            frame["error"] = err
+        replies.append(frame)
+    return replies
+
+
 def lua_request(proc, op, ident, path, body):
     if isinstance(body, str):
         body = body.encode("utf-8")
@@ -400,6 +441,15 @@ def main():
 
     proc, root = start_shell_session()
     try:
+        turned = lua_turn(proc, [
+            {"type": "eval", "id": "1", "code": "return 1"},
+            {"type": "eval", "id": "2", "code": "return 2"},
+        ])
+        if len(turned) != 2 or turned[0].get("values") != [1] or turned[0].get("ok") is not True:
+            raise SystemExit("shell did not return the first eval: %s" % turned)
+        if turned[1].get("ok") is not False or turned[1].get("error") != "busy":
+            raise SystemExit("shell ran the overlapping eval: %s" % turned)
+        print("shell busy %s" % turned[1]["error"], flush=True)
         rest = prove_file_and_reboot(conn, rest, proc, root, http_port)
     finally:
         proc.kill()

@@ -225,13 +225,22 @@ A.eq(shell.note_watchdog(noted, { type = "stick", x = 0, y = 0, z = 0 }), false,
 
 local watchdog = require("watchdog")
 local protocol = require("protocol")
+local wired_side = config.default().names.wired_modem
 local ender = {}
-local wired = {}
+local wired_packets = {}
 local function pocket_broadcast(message)
   ender[#ender + 1] = message
 end
+local function transmit(side, channel, reply, payload)
+  wired_packets[#wired_packets + 1] = {
+    side = side,
+    channel = channel,
+    reply = reply,
+    payload = payload,
+  }
+end
 pocket_broadcast({ type = "clear_emergency" })
-A.eq(#wired, 0, "a pocket clear starts on the ender network only")
+A.eq(#wired_packets, 0, "a pocket clear starts on the ender network only")
 local clear_session = shell.new_session({ emergency = true }, {}, {})
 clear_session.latched = true
 local wd = watchdog.new()
@@ -240,12 +249,21 @@ wd, action = watchdog.step(wd, { type = "arm", engine_id = 12, now = 0 })
 wd, action = watchdog.step(wd, { type = "zero", now = 0 })
 A.eq(wd.latched, true, "the watchdog is holding zero before the pocket clear")
 local pending = shell.ingest(clear_session, nil, ender[1], protocol.keep, function(message)
-  wired[#wired + 1] = message
+  shell.repeat_wired(message, transmit, wired_side, 12)
 end)
 A.eq(pending.type, "clear_emergency", "the engine keeps the pocket clear")
-A.eq(#wired, 1, "the engine forwards the clear onto the wired modem")
-A.eq(wired[1].type, "clear_emergency", "the wired copy is the clear")
-wd, action = watchdog.step(wd, { type = wired[1].type, now = 1 })
+A.eq(#wired_packets, 1, "the engine repeats the clear on the wired modem")
+A.eq(wired_packets[1].side, wired_side, "the repeat is addressed to the wired modem")
+A.eq(wired_packets[1].channel, 65535, "the repeat uses the rednet broadcast channel")
+A.eq(wired_packets[1].reply, 12 % 65500, "the reply channel is the engine id in rednet's id range")
+local wrapped = wired_packets[1].payload
+A.eq(type(wrapped.nMessageID), "number", "the wired packet has a rednet message id")
+A.eq(wrapped.nMessageID, wrapped.nMessageID, "the rednet message id is not NaN")
+A.eq(wrapped.nRecipient, 65535, "the wired packet is addressed as a rednet broadcast")
+A.eq(wrapped.nSender, 12, "the wired packet names the engine as the sender")
+local heard = wrapped.message
+A.eq(heard.type, "clear_emergency", "the wired packet carries the pocket clear")
+wd, action = watchdog.step(wd, { type = heard.type, now = 1 })
 A.eq(wd.latched, false, "a pocket clear keeps the watchdog unlatched")
 A.eq(action.write_zero, false, "clearing stops the zero write")
 A.eq(action.broadcast, false, "the watchdog announces the latch is gone")
@@ -266,6 +284,8 @@ print("pass: pocket clear keeps the watchdog unlatched")
 
 local engine_src = io.open("programs/engine.lua", "rb"):read("a")
 assert(string.find(engine_src, "apply_latch", 1, true), "the flight loop applies the latch")
-assert(string.find(engine_src, "ingest", 1, true), "the flight loop forwards a pocket clear")
+assert(string.find(engine_src, "repeat_wired", 1, true), "the flight loop repeats a clear on the wired modem")
+assert(string.find(engine_src, "cfg.names.wired_modem", 1, true), "the repeat uses the wired modem name")
+assert(string.find(engine_src, 'peripheral.call(side, "transmit", channel, reply, payload)', 1, true), "the repeat transmits on the wired modem only")
 assert(string.find(engine_src, "on_idle, session", 1, true), "the shell keeps the session busy until the result is sent")
 assert(string.find(engine_src, "parallel.waitForAll", 1, true), "the shell runs beside the flight loop")

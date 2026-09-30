@@ -12,6 +12,7 @@ end
 
 package.path = src .. "/?.lua;" .. package.path
 local shell = require("shell")
+local link = require("link")
 
 io.stdout:setvbuf("no")
 io.stdin:setvbuf("no")
@@ -95,8 +96,76 @@ end
 io.write("ready\n")
 io.flush()
 
+local function write_turn_reply(reply)
+  io.write(tostring(reply.id or ""), "\n")
+  io.write(reply.ok and "1\n" or "0\n")
+  io.write(reply.error or "", "\n")
+  local values = reply.values or {}
+  io.write(tostring(#values), "\n")
+  for i = 1, #values do
+    local value = values[i]
+    if type(value) == "number" then
+      io.write("n\n", tostring(value), "\n")
+    elseif type(value) == "boolean" then
+      io.write("b\n", tostring(value), "\n")
+    else
+      io.write("s\n", tostring(value), "\n")
+    end
+  end
+  local text = reply.output or ""
+  io.write(tostring(#text), "\n")
+  io.write(text)
+end
+
 while true do
   local op = read_line()
+  if op == "turn" then
+    local count = tonumber(read_line()) or 0
+    local messages = {}
+    for _ = 1, count do
+      local kind = read_line()
+      local id = read_line()
+      local n = tonumber(read_line()) or 0
+      local code = ""
+      if n > 0 then
+        code = io.read(n)
+        if code == nil then
+          os.exit(0)
+        end
+      end
+      messages[#messages + 1] = { type = kind, id = id, code = code }
+    end
+    local sent = {}
+    local index = 2
+    local ran, err = pcall(function()
+      link.turn(session, messages[1], function(msg)
+        return shell.handle(session, msg, {
+          fs = fs,
+          clock = function()
+            return 0
+          end,
+        })
+      end, function()
+        local nxt = messages[index]
+        index = index + 1
+        return nxt
+      end, function(reply)
+        sent[#sent + 1] = reply
+      end, { sleep = function() end, reboot = function() end })
+    end)
+    if not ran then
+      io.write("err\n")
+      io.write(tostring(err), "\n")
+      io.flush()
+    else
+      io.write("ok\n")
+      io.write(tostring(#sent), "\n")
+      for i = 1, #sent do
+        write_turn_reply(sent[i])
+      end
+      io.flush()
+    end
+  else
   local id = read_line()
   local path = read_line()
   local n = tonumber(read_line()) or 0
@@ -145,5 +214,6 @@ while true do
   end)
   if not ran then
     respond(false, id, tostring(err), nil, false, false, "", table.concat(ops, "|"))
+  end
   end
 end

@@ -156,6 +156,23 @@ function M.ingest(session, pending, message, keep, forward)
   return command
 end
 
+function M.repeat_wired(message, transmit, wired_side, sender_id)
+  if type(message) ~= "table" or message.type ~= "clear_emergency" then
+    return false
+  end
+  if type(wired_side) ~= "string" or wired_side == "" or type(sender_id) ~= "number" then
+    return false
+  end
+  local channel = 65535
+  transmit(wired_side, channel, sender_id % 65500, {
+    nMessageID = math.random(1, 2147483647),
+    nRecipient = channel,
+    nSender = sender_id,
+    message = message,
+  })
+  return true
+end
+
 function M.write_file(fs, path, content)
   if type(path) ~= "string" or path == "" then
     return { ok = false, error = "bad path" }
