@@ -1,10 +1,13 @@
-"""Drive the shipped bridge: hello plus eval, oversized frame, shutdown."""
+"""Drive the shipped bridge: hello plus eval, file replace, reboot, oversized frame, shutdown."""
 
 import base64
 import json
 import os
+import shutil
 import socket
+import subprocess
 import sys
+import tempfile
 import threading
 import urllib.request
 from pathlib import Path
@@ -110,6 +113,7 @@ def read_server_frame(conn, buffered=b""):
 
 def connect(port, role, engine_id=None):
     conn = socket.create_connection(("127.0.0.1", port), timeout=5)
+    conn.settimeout(5)
     key = base64.b64encode(os.urandom(16)).decode("ascii")
     request = (
         "GET /ship HTTP/1.1\r\n"
@@ -142,6 +146,194 @@ def post_json(port, path, body):
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def get_json(port, path):
+    with urllib.request.urlopen("http://127.0.0.1:%s%s" % (port, path), timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def find_lua():
+    env = os.environ.get("LUA_EXE")
+    if env and os.path.isfile(env):
+        return env
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = os.path.join(directory, "lua.exe")
+        if os.path.isfile(candidate):
+            return candidate
+    local = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Lua", "bin", "lua.exe")
+    if os.path.isfile(local):
+        return local
+    raise SystemExit("lua.exe not found")
+
+
+def _lua_line(proc):
+    raw = proc.stdout.readline()
+    if not raw:
+        raise SystemExit("shell session closed")
+    return raw.decode("utf-8").rstrip("\r\n")
+
+
+def read_lua_reply(proc):
+    ok = _lua_line(proc) == "1"
+    ident = _lua_line(proc)
+    err = _lua_line(proc)
+    has_content = _lua_line(proc) == "1"
+    n = int(_lua_line(proc))
+    content = proc.stdout.read(n).decode("utf-8") if n else ""
+    reboot = _lua_line(proc) == "1"
+    order = _lua_line(proc)
+    ops = [part for part in _lua_line(proc).split("|") if part]
+    return {
+        "ok": ok,
+        "id": ident,
+        "error": err,
+        "has_content": has_content,
+        "content": content,
+        "reboot": reboot,
+        "order": order,
+        "ops": ops,
+    }
+
+
+def start_shell_session():
+    lua = find_lua()
+    src = str((HERE.parent.parent / "src").resolve()).replace("\\", "/")
+    root = tempfile.mkdtemp(prefix="ship-shell-")
+    root_arg = root.replace("\\", "/")
+    proc = subprocess.Popen(
+        [lua, str(HERE / "shell_session.lua"), src, root_arg],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stderr_lines = []
+
+    def drain():
+        for line in proc.stderr:
+            stderr_lines.append(line.decode("utf-8", "replace"))
+
+    threading.Thread(target=drain, daemon=True).start()
+    ready_box = {}
+
+    def read_ready():
+        ready_box["line"] = proc.stdout.readline()
+
+    waiter = threading.Thread(target=read_ready)
+    waiter.start()
+    waiter.join(5)
+    got = ready_box.get("line")
+    if got is None or got.strip() != b"ready":
+        proc.kill()
+        shutil.rmtree(root, ignore_errors=True)
+        raise SystemExit("shell session did not start: %r %s" % (got, "".join(stderr_lines)))
+    return proc, root
+
+
+def lua_request(proc, op, ident, path, body):
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    elif body is None:
+        body = b""
+    header = ("%s\n%s\n%s\n%d\n" % (op, "" if ident is None else ident, path or "", len(body))).encode("ascii")
+    proc.stdin.write(header)
+    if body:
+        proc.stdin.write(body)
+    proc.stdin.flush()
+    return read_lua_reply(proc)
+
+
+def forward_shell(conn, rest, proc):
+    message, rest = read_server_frame(conn, rest)
+    reply = lua_request(
+        proc,
+        message.get("type") or "",
+        message.get("id"),
+        message.get("path") or "",
+        message.get("content") or "",
+    )
+    if reply["id"] != str(message.get("id")):
+        raise SystemExit("shell id %s does not match bridge id %s" % (reply["id"], message.get("id")))
+    frame = {
+        "type": "result",
+        "id": reply["id"],
+        "ok": reply["ok"],
+        "values": [],
+        "output": "",
+    }
+    if reply["has_content"]:
+        frame["content"] = reply["content"]
+    if reply["error"]:
+        frame["error"] = reply["error"]
+    conn.sendall(client_frame(json.dumps(frame)))
+    return message, reply, rest
+
+
+def roundtrip(conn, rest, proc, worker):
+    box = {}
+
+    def run():
+        try:
+            box["result"] = worker()
+        except Exception as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    message, reply, rest = forward_shell(conn, rest, proc)
+    thread.join(5)
+    if thread.is_alive():
+        raise SystemExit("http client still waiting after %s" % message.get("type"))
+    if "error" in box:
+        raise box["error"]
+    return message, reply, box["result"], rest
+
+
+def prove_file_and_reboot(conn, rest, proc, root, http_port):
+    message, reply, body, rest = roundtrip(
+        conn, rest, proc,
+        lambda: post_json(http_port, "/write", {"path": "note.txt", "content": "old"}),
+    )
+    if message.get("type") != "write" or message.get("path") != "note.txt" or message.get("content") != "old":
+        raise SystemExit("bridge dropped the first write: %s" % message)
+    if not body.get("ok") or reply["ops"] != ["w note.txt.tmp", "move note.txt.tmp note.txt"]:
+        raise SystemExit("create via temp failed: %s ops=%s" % (body, reply["ops"]))
+
+    message, reply, body, rest = roundtrip(
+        conn, rest, proc,
+        lambda: post_json(http_port, "/write", {"path": "note.txt", "content": "new"}),
+    )
+    if message.get("type") != "write" or message.get("content") != "new":
+        raise SystemExit("bridge dropped the replace: %s" % message)
+    replaced = ["w note.txt.tmp", "delete note.txt", "move note.txt.tmp note.txt"]
+    if not body.get("ok") or reply["ops"] != replaced:
+        raise SystemExit("replace failed: %s ops=%s" % (body, reply["ops"]))
+    print("file replaced %s" % " ".join(reply["ops"]), flush=True)
+
+    message, reply, body, rest = roundtrip(
+        conn, rest, proc,
+        lambda: get_json(http_port, "/read?path=note.txt"),
+    )
+    if message.get("type") != "read" or message.get("path") != "note.txt":
+        raise SystemExit("bridge dropped the read: %s" % message)
+    disk_path = Path(root) / "note.txt"
+    disk = disk_path.read_text(encoding="utf-8")
+    if body.get("content") != "new" or reply["content"] != disk:
+        raise SystemExit("read-back failed: http=%s shell=%s disk=%s" % (body, reply["content"], disk))
+    if (Path(root) / "note.txt.tmp").exists():
+        raise SystemExit("temp file was left behind")
+    print("read-back %s" % body["content"], flush=True)
+
+    message, reply, body, rest = roundtrip(
+        conn, rest, proc,
+        lambda: post_json(http_port, "/reboot", {}),
+    )
+    if message.get("type") != "reboot":
+        raise SystemExit("bridge dropped the reboot: %s" % message)
+    if not body.get("ok") or not reply["reboot"] or reply["order"] != "send,sleep 0.5,reboot":
+        raise SystemExit("reboot failed: %s order=%s reboot=%s" % (body, reply["order"], reply["reboot"]))
+    print("reboot %s" % reply["order"], flush=True)
+    return rest
 
 
 def main():
@@ -183,9 +375,16 @@ def main():
         raise SystemExit("eval result missing: %s" % box)
     print("hello-eval ok", flush=True)
 
+    proc, root = start_shell_session()
+    try:
+        rest = prove_file_and_reboot(conn, rest, proc, root, http_port)
+    finally:
+        proc.kill()
+        shutil.rmtree(root, ignore_errors=True)
+
     huge = b"x" * (bridge_mod.FRAME_LIMIT + 1)
     conn.sendall(client_frame(huge))
-    rejected, _rest = read_server_frame(conn)
+    rejected, _rest = read_server_frame(conn, rest)
     if rejected.get("error") != "too_large":
         raise SystemExit("oversized frame was not rejected: %s" % rejected)
     print("oversized rejected", flush=True)
