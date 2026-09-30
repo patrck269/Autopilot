@@ -357,6 +357,8 @@ class Bridge:
         with self.lock:
             if self.engine_conn is None:
                 return {"ok": False, "error": "engine down"}
+            if payload.get("type") == "eval" and self.eval_id is not None:
+                return {"ok": False, "error": "busy"}
             request_id = str(self.next_id)
             self.next_id += 1
             conn = self.engine_conn

@@ -37,17 +37,65 @@ A.eq(first.ok, true, "eval runs")
 A.eq(first.values[1], 7, "first return value")
 A.eq(first.values[2], "x", "second return value")
 A.eq(first.output, "hi", "printed output")
-A.eq(session.busy, false, "eval clears the busy flag")
+A.eq(session.busy, true, "eval stays busy until its result is released")
+shell.release(session)
+A.eq(session.busy, false, "release clears the busy flag")
 print("pass: eval returns values")
 print("pass: eval captures print")
 
-session.busy = true
-local second = shell.eval(session, "return 1", still_clock)
-A.eq(second.ok, false, "a second eval is rejected")
-A.eq(second.error, "busy", "the rejection is busy")
-A.eq(session.busy, true, "a rejected eval leaves the running one busy")
-session.busy = false
+_G.shell = shell
+local captured = {}
+_G.captured = captured
+_G.clock = still_clock
+local outer = shell.eval(session, [[
+  local via_eval = shell.eval(session, "return 9", clock)
+  captured.eval_ok = via_eval.ok
+  captured.eval_error = via_eval.error
+  local via_handle = shell.handle(session, { type = "eval", id = "inner", code = "return 8" }, { clock = clock })
+  captured.handle_ok = via_handle.ok
+  captured.handle_error = via_handle.error
+  return 4
+]], still_clock)
+A.eq(outer.ok, true, "the running eval still returns")
+A.eq(outer.values[1], 4, "the running eval returns its value")
+A.eq(captured.eval_ok, false, "a nested eval is rejected")
+A.eq(captured.eval_error, "busy", "a nested eval is busy")
+A.eq(captured.handle_ok, false, "a nested handle is rejected")
+A.eq(captured.handle_error, "busy", "a nested handle is busy")
+local queued = shell.eval(session, "return 3", still_clock)
+A.eq(queued.ok, false, "an eval is rejected until the running one is released")
+A.eq(queued.error, "busy", "the queued eval is busy")
+shell.release(session)
+A.eq(session.busy, false, "release clears the busy flag after the nested eval")
+_G.shell = nil
+_G.clock = nil
+_G.captured = nil
 print("pass: second eval is busy")
+
+local sent = {}
+local second_ran = false
+_G.mark_second = function()
+  second_ran = true
+end
+local queued_eval = { { type = "eval", id = "2", code = "mark_second() return 2" } }
+local turn_session = shell.new_session({ emergency = false }, {}, {})
+link.turn(turn_session, { type = "eval", id = "1", code = "return 1" }, function(msg)
+  return shell.handle(turn_session, msg, { clock = still_clock })
+end, function()
+  if #queued_eval == 0 then
+    return nil
+  end
+  return table.remove(queued_eval, 1)
+end, function(reply)
+  sent[#sent + 1] = reply
+end, { sleep = function() end, reboot = function() end })
+A.eq(second_ran, false, "a buffered second eval does not run")
+A.eq(sent[1].values[1], 1, "the first eval returns")
+A.eq(sent[2].ok, false, "the buffered eval is rejected")
+A.eq(sent[2].error, "busy", "the buffered eval is busy")
+A.eq(turn_session.busy, false, "the turn releases the session")
+_G.mark_second = nil
+print("pass: a second eval before release is busy")
 
 local slow_state = { emergency = false }
 local slow = shell.new_session(slow_state, {}, {})
@@ -175,7 +223,49 @@ A.eq(noted.latched, true, "a watchdog latch sets the session")
 A.eq(noted.state.emergency, true, "a watchdog latch sets emergency")
 A.eq(shell.note_watchdog(noted, { type = "stick", x = 0, y = 0, z = 0 }), false, "flight commands stay on the flight path")
 
+local watchdog = require("watchdog")
+local protocol = require("protocol")
+local ender = {}
+local wired = {}
+local function pocket_broadcast(message)
+  ender[#ender + 1] = message
+end
+pocket_broadcast({ type = "clear_emergency" })
+A.eq(#wired, 0, "a pocket clear starts on the ender network only")
+local clear_session = shell.new_session({ emergency = true }, {}, {})
+clear_session.latched = true
+local wd = watchdog.new()
+local action
+wd, action = watchdog.step(wd, { type = "arm", engine_id = 12, now = 0 })
+wd, action = watchdog.step(wd, { type = "zero", now = 0 })
+A.eq(wd.latched, true, "the watchdog is holding zero before the pocket clear")
+local pending = shell.ingest(clear_session, nil, ender[1], protocol.keep, function(message)
+  wired[#wired + 1] = message
+end)
+A.eq(pending.type, "clear_emergency", "the engine keeps the pocket clear")
+A.eq(#wired, 1, "the engine forwards the clear onto the wired modem")
+A.eq(wired[1].type, "clear_emergency", "the wired copy is the clear")
+wd, action = watchdog.step(wd, { type = wired[1].type, now = 1 })
+A.eq(wd.latched, false, "a pocket clear keeps the watchdog unlatched")
+A.eq(action.write_zero, false, "clearing stops the zero write")
+A.eq(action.broadcast, false, "the watchdog announces the latch is gone")
+shell.note_watchdog(clear_session, { type = "watchdog", latched = action.broadcast })
+shell.apply_latch(clear_session, clear_session.state, pending)
+wd, action = watchdog.step(wd, { type = "tick", now = 2 })
+A.eq(wd.latched, false, "the next watchdog tick stays unlatched")
+A.eq(action.write_zero, false, "the next tick does not force zero")
+A.eq(action.broadcast, nil, "the next tick does not turn the latch back on")
+A.eq(clear_session.latched, false, "the engine stays unlatched")
+A.eq(clear_session.state.emergency, false, "the engine emergency stays off")
+local echoes = 0
+shell.ingest(clear_session, nil, { type = "watchdog", latched = true }, protocol.keep, function()
+  echoes = echoes + 1
+end)
+A.eq(echoes, 0, "a watchdog latch is not repeated onto the wired modem")
+print("pass: pocket clear keeps the watchdog unlatched")
+
 local engine_src = io.open("programs/engine.lua", "rb"):read("a")
 assert(string.find(engine_src, "apply_latch", 1, true), "the flight loop applies the latch")
-assert(string.find(engine_src, "note_watchdog", 1, true), "the flight loop honors watchdog messages")
+assert(string.find(engine_src, "ingest", 1, true), "the flight loop forwards a pocket clear")
+assert(string.find(engine_src, "on_idle, session", 1, true), "the shell keeps the session busy until the result is sent")
 assert(string.find(engine_src, "parallel.waitForAll", 1, true), "the shell runs beside the flight loop")

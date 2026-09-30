@@ -129,7 +129,6 @@ function M.eval(session, code, clock)
   end
   result.output = text
   local elapsed = clock() - started
-  session.busy = false
   if elapsed >= 3 then
     session.latched = true
     if session.state ~= nil then
@@ -137,6 +136,24 @@ function M.eval(session, code, clock)
     end
   end
   return result
+end
+
+function M.release(session)
+  if type(session) == "table" then
+    session.busy = false
+  end
+end
+
+function M.ingest(session, pending, message, keep, forward)
+  if M.note_watchdog(session, message) then
+    return pending
+  end
+  local command = keep(pending, message)
+  if type(message) == "table" and message.type == "clear_emergency"
+      and type(command) == "table" and command.type == "clear_emergency" then
+    forward(command)
+  end
+  return command
 end
 
 function M.write_file(fs, path, content)

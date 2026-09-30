@@ -31,7 +31,48 @@ function M.decode(text)
   return textutils.unserializeJSON(text)
 end
 
-function M.serve(url, token, role, on_message, on_idle)
+function M.turn(session, msg, on_message, pull, send, io)
+  io = io or {}
+  local function deliver(incoming)
+    if type(incoming) ~= "table" then
+      return
+    end
+    local reply = on_message(incoming)
+    if type(reply) ~= "table" then
+      return
+    end
+    local reboot = reply.reboot
+    reply.reboot = nil
+    if reboot then
+      shell_mod.reboot(function()
+        send(reply)
+      end, io.sleep, io.reboot)
+    else
+      send(reply)
+    end
+  end
+
+  local ok, err = pcall(function()
+    deliver(msg)
+    if type(session) == "table" and session.busy then
+      while true do
+        local nxt = pull()
+        if nxt == nil then
+          break
+        end
+        deliver(nxt)
+      end
+    end
+  end)
+  if type(session) == "table" and session.busy then
+    shell_mod.release(session)
+  end
+  if not ok then
+    error(err, 0)
+  end
+end
+
+function M.serve(url, token, role, on_message, on_idle, session)
   local ws, err = http.websocket(url)
   if not ws then
     error(err or "websocket failed", 0)
@@ -58,18 +99,15 @@ function M.serve(url, token, role, on_message, on_idle)
     if raw ~= nil then
       local msg = M.decode(raw)
       if type(msg) == "table" then
-        local reply = on_message(msg)
-        if type(reply) == "table" then
-          local reboot = reply.reboot
-          reply.reboot = nil
-          if reboot then
-            shell_mod.reboot(function()
-              ws.send(M.encode(reply))
-            end, sleep, os.reboot)
-          else
-            ws.send(M.encode(reply))
+        M.turn(session, msg, on_message, function()
+          local nxt = ws.receive(0)
+          if nxt == nil then
+            return nil
           end
-        end
+          return M.decode(nxt)
+        end, function(reply)
+          ws.send(M.encode(reply))
+        end, { sleep = sleep, reboot = os.reboot })
       end
     elseif on_idle ~= nil then
       local extra = on_idle()

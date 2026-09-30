@@ -363,6 +363,29 @@ def main():
     message, rest = read_server_frame(conn, rest)
     if message.get("type") != "eval" or message.get("code") != "return 1":
         raise SystemExit("expected eval, got %s" % message)
+    second_box = {}
+
+    def do_second():
+        try:
+            second_box["result"] = post_json(http_port, "/eval", {"code": "return 2"})
+        except Exception as exc:
+            second_box["error"] = exc
+
+    second = threading.Thread(target=do_second)
+    second.start()
+    second.join(5)
+    second_result = second_box.get("result") or {}
+    if second_result.get("ok") is not False or second_result.get("error") != "busy":
+        raise SystemExit("second eval was not busy: %s" % second_box)
+    print("second eval is busy", flush=True)
+    conn.settimeout(0.2)
+    try:
+        extra, rest = read_server_frame(conn, rest)
+    except socket.timeout:
+        extra = None
+    conn.settimeout(5)
+    if extra is not None:
+        raise SystemExit("bridge sent a second eval: %s" % extra)
     conn.sendall(client_frame(json.dumps({
         "type": "result",
         "id": message["id"],
