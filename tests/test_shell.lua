@@ -160,8 +160,9 @@ local written = shell.write_file(fake_fs, "note.txt", "new")
 A.eq(written.ok, true, "write replaces a file")
 A.eq(files["note.txt"], "new", "the new contents are what was written")
 A.eq(ops[1], "w note.txt.tmp", "write goes to a temp file first")
-A.eq(ops[2], "delete note.txt", "the previous file is removed after the temp is closed")
+A.eq(ops[2], "move note.txt note.txt.ship-shell-backup", "the previous file is retained until replacement succeeds")
 A.eq(ops[3], "move note.txt.tmp note.txt", "the temp file becomes the destination")
+A.eq(ops[4], "delete note.txt.ship-shell-backup", "backup removed after replacement succeeds")
 local read_back = shell.read_file(fake_fs, "note.txt")
 A.eq(read_back.ok, true, "read finds the file")
 A.eq(read_back.content, "new", "read returns the replaced contents")
@@ -197,7 +198,7 @@ local _, flying = engine_tick.tick(flight, {
   config = cfg,
 })
 A.eq(flight.emergency, false, "an unlatched ship is not forced into emergency")
-A.eq(flying.rsc.rsc10, cfg.hover_step, "an unlatched ship still takes a stick command")
+A.near(flying.rsc.rsc10, require("control").prop_rpm(3,cfg.hover_equilibrium)*require("pid").thrust_scale(ship.y),1e-6, "an unlatched ship still takes a stick command")
 
 flight_session.latched = true
 shell.apply_latch(flight_session, flight, nil)

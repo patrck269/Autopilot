@@ -12,6 +12,8 @@ local mfd = require("mfd")
 local views = require("views")
 local shell_mod = require("shell")
 local link = require("link")
+local frame = require("frame")
+local mix = require("mix")
 
 local cfg = config.default()
 local state = engine_tick.new_state()
@@ -21,13 +23,18 @@ local MODEM_SIDE = {
   ender_modem = "right",
 }
 
-rednet.open("back")
-rednet.open("right")
+local function open_modems()
+  for _,key in ipairs({"wired_modem","ender_modem"}) do
+    local side=cfg.names[key]
+    if peripheral.isPresent(side) and peripheral.getType(side)=="modem" then rednet.open(side) end
+  end
+end
+open_modems()
 
 local function present_map()
   local found = {}
   for key, network_name in pairs(cfg.names) do
-    local probe = MODEM_SIDE[key] or network_name
+    local probe = network_name
     if peripheral.isPresent(probe) then
       found[key] = true
     end
@@ -38,18 +45,12 @@ end
 local missing = startup.missing(present_map(), config.required_names(cfg))
 local ready = #missing == 0
 
+local last_sample_at = os.clock()
 local function collect_ship()
-  local pos = ship.getWorldspacePosition()
-  local vel = ship.getVelocity()
-  local pitch, yaw, roll = ship.getQuaternion():toEuler()
-  local omega = ship.getAngularVelocity()
-  return {
-    x = pos.x, y = pos.y, z = pos.z,
-    vx = vel.x, vy = vel.y, vz = vel.z,
-    pitch = pitch, roll = roll, heading = yaw,
-    pitch_rate = omega.x, roll_rate = omega.z, yaw_rate = omega.y,
-    dt = 0.05,
-  }
+  local now = os.clock()
+  local dt = math.max(0.001,math.min(now-last_sample_at,0.25))
+  last_sample_at = now
+  return frame.sample(ship.getWorldspacePosition(),ship.getVelocity(),ship.getQuaternion(),ship.getAngularVelocity(),dt,cfg.frame)
 end
 
 local function wrap_devices()
@@ -99,6 +100,7 @@ end
 local pages, ordered_names = attach_monitors()
 
 local function refresh_peripherals()
+  open_modems()
   devices = wrap_devices()
   session.devices = devices
   stress_gauge = devices.stressometer
@@ -324,16 +326,19 @@ if not ready then
 end
 
 local tick_timer = os.startTimer(0.05)
-local pending = nil
+local pending = {}
+local last_stick_at = -math.huge
 local last_outputs = runtime and nil
 
 local function flight_loop()
   while true do
     local event, a, b, c = os.pullEvent()
     if event == "rednet_message" then
-      pending = shell_mod.ingest(session, pending, b, protocol.keep, function(message)
+      local valid = protocol.validate(b)
+      if valid and valid.type == "stick" then last_stick_at = os.clock() end
+      pending = shell_mod.ingest(session, pending, b, protocol.enqueue, function(message)
         shell_mod.repeat_wired(message, function(side, channel, reply, payload)
-          peripheral.call(side, "transmit", channel, reply, payload)
+          if peripheral.isPresent(side) then peripheral.call(side, "transmit", channel, reply, payload) end
         end, cfg.names.wired_modem, os.getComputerID())
       end)
     elseif event == "peripheral" or event == "peripheral_detach" then
@@ -343,7 +348,9 @@ local function flight_loop()
       if screen ~= nil then
         local selected = mfd.hit(screen.w, screen.h, b, c)
         if selected ~= nil then
-          pages[a] = selected
+          local other=nil
+          for name,page in pairs(pages) do if name~=a and page==selected then other=name;break end end
+          if other then pages=monitors.swap(pages,a,other) else pages[a]=selected end
         end
       end
     elseif event == "timer" and a == tick_timer then
@@ -365,18 +372,19 @@ local function flight_loop()
       session.cfg = cfg
       session.devices = devices
       session.state = state
-      local command = pending
-      pending = nil
-      shell_mod.apply_latch(session, state, command)
+      local commands = pending
+      pending = {}
+      for _,command in ipairs(commands) do shell_mod.apply_latch(session,state,command) end
+      shell_mod.apply_latch(session,state,nil)
       local outputs
       local status
       state, outputs, status = engine_tick.tick(state, {
         ship = sample,
-        command = command,
+        commands = commands,
         su = consumed,
         su_capacity = capacity,
         ready = ready,
-        stick_fresh = command ~= nil and command.type == "stick",
+        stick_fresh = os.clock() - last_stick_at <= cfg.stick_timeout,
         config = cfg,
         current_elevation_rpm = elevation_rpm,
       })
@@ -389,6 +397,9 @@ local function flight_loop()
       status.su_rcs = stress.rcs
       runtime.apply(outputs, devices)
       status.speed = status.horizontal_speed
+      status.type = "status"
+      status.devices = cfg.names
+      status.shaft_rpm = shaft_rpm()
       rednet.broadcast(status)
       draw(status, outputs, sample, stress)
       last_outputs = outputs
@@ -432,4 +443,10 @@ local function shell_loop()
   end
 end
 
-parallel.waitForAll(flight_loop, shell_loop)
+local ok, failure = pcall(parallel.waitForAll,flight_loop,shell_loop)
+-- Peripheral setpoints persist when Lua exits. Attempt every zero write even
+-- when one peripheral failed, including a normal Ctrl-T termination.
+session.latched = true
+state.emergency = true
+pcall(runtime.apply,mix.zero(),devices)
+if not ok then error(failure,0) end

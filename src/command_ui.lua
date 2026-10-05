@@ -1,10 +1,13 @@
 local protocol = require("protocol")
+local numeric = require("numeric")
 
 local M = {}
 
 function M.new()
   return {
     stick = { x = 0, y = 0, z = 0 },
+    pressed = {},
+    press_order = 0,
     buffer = "",
     field = nil,
     profile = "warp",
@@ -32,29 +35,25 @@ local function set_axis(state, axis, value, down)
 end
 
 function M.key(state, name, down, held)
-  if name == "right" then
-    return state, set_axis(state, "x", 1, down)
-  end
-  if name == "left" then
-    return state, set_axis(state, "x", -1, down)
-  end
-  if name == "d" then
-    return state, set_axis(state, "y", 1, down)
-  end
-  if name == "a" then
-    return state, set_axis(state, "y", -1, down)
-  end
-  if name == "space" or name == "up" then
-    return state, set_axis(state, "z", 1, down)
-  end
-  if name == "leftShift" or name == "down" then
-    return state, set_axis(state, "z", -1, down)
+  local axes={right={"x",1},left={"x",-1},d={"y",1},a={"y",-1},space={"z",1},up={"z",1},leftShift={"z",-1},down={"z",-1}}
+  local axis=axes[name]
+  if axis then
+    if down then state.press_order=state.press_order+1;state.pressed[name]=state.press_order else state.pressed[name]=nil end
+    local newest,value=0,0
+    for key,order in pairs(state.pressed) do
+      if axes[key] and axes[key][1]==axis[1] and order>newest then newest,value=order,axes[key][2] end
+    end
+    state.stick[axis[1]]=value
+    return state,stick_msg(state)
   end
   if held then
     return state, nil
   end
   if not down then
     return state, nil
+  end
+  if name=="m" or name=="s" or name=="u" or name=="k" or name=="e" then
+    state.stick={x=0,y=0,z=0};state.pressed={}
   end
   if name == "m" then
     state.mode = "manual"
@@ -103,7 +102,7 @@ function M.key(state, name, down, held)
     typed = name
   end
   if state.field ~= nil and typed ~= nil then
-    state.buffer = state.buffer .. typed
+    if #state.buffer<32 then state.buffer = state.buffer .. typed end
     return state, nil
   end
   if name == "backspace" and state.field ~= nil then
@@ -115,7 +114,7 @@ function M.key(state, name, down, held)
     local field = state.field
     state.field = nil
     state.buffer = ""
-    if number == nil then
+    if not numeric.finite(number) then
       return state, nil
     end
     if field == "x" then
@@ -141,4 +140,7 @@ function M.key(state, name, down, held)
   return state, nil
 end
 
+function M.repeat_stick(state)
+  if state.stick.x~=0 or state.stick.y~=0 or state.stick.z~=0 then return stick_msg(state) end
+end
 return M

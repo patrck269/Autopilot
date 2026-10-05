@@ -1,3 +1,4 @@
+local numeric = require("numeric")
 local M = {}
 
 local OUTPUT_LIMIT = 8192
@@ -37,27 +38,40 @@ function M.note_watchdog(session, message)
   if type(message) ~= "table" or message.type ~= "watchdog" then
     return false
   end
-  session.latched = message.latched == true
+  if type(message.latched) ~= "boolean" then return false end
+  session.latched = message.latched
   if session.state ~= nil then
     session.state.emergency = session.latched
   end
   return true
 end
 
-local function export_value(value, depth)
-  local kind = type(value)
-  if kind == "boolean" or kind == "number" or kind == "string" then
-    return value
+local function export_value(value, depth, context)
+  context=context or {left=1024,seen={}}
+  context.left=context.left-1
+  if context.left<0 then context.truncated=true;return "[truncated]" end
+  local kind=type(value)
+  if kind=="number" and not numeric.finite(value) then return tostring(value) end
+  if kind=="boolean" or kind=="number" then return value end
+  if kind=="string" then
+    if #value>65536 then context.truncated=true end
+    return value:sub(1,65536)
   end
-  if kind ~= "table" or depth >= 8 then
-    return tostring(value)
-  end
-  local out = {}
-  for key, item in pairs(value) do
-    if type(key) == "string" or type(key) == "number" then
-      out[key] = export_value(item, depth + 1)
+  if kind~="table" then return tostring(value) end
+  if context.seen[value] then return "[cycle]" end
+  if depth>=8 then context.truncated=true;return "[depth limit]" end
+  context.seen[value]=true
+  local out,count={},0
+  local array=true
+  for key in pairs(value) do if type(key)~="number" or key<1 or key%1~=0 then array=false end end
+  for key,item in pairs(value) do
+    count=count+1
+    if count>128 or context.left<=0 then context.truncated=true;out.truncated=true;break end
+    if type(key)=="string" or type(key)=="number" then
+      out[array and key or tostring(key)]=export_value(item,depth+1,context)
     end
   end
+  context.seen[value]=nil
   return out
 end
 
@@ -78,7 +92,14 @@ local function make_env(session, lines)
       for i = 1, count do
         parts[i] = tostring(select(i, ...))
       end
-      lines[#lines + 1] = table.concat(parts, "\t")
+      local line = table.concat(parts, "\t")
+      local remaining = OUTPUT_LIMIT - (lines.bytes or 0)
+      if #line>remaining then lines.truncated=true end
+      if remaining > 0 then
+        line = string.sub(line,1,remaining)
+        lines[#lines+1] = line
+        lines.bytes = (lines.bytes or 0) + #line + 1
+      end
     end,
   }
   return setmetatable(env, { __index = _G })
@@ -89,6 +110,7 @@ local function load_chunk(code, env)
 end
 
 function M.eval(session, code, clock)
+  if type(code) ~= "string" then return {ok=false,error="bad code",values={},output=""} end
   if session.busy then
     return { ok = false, error = "busy", values = {}, output = "" }
   end
@@ -114,11 +136,12 @@ function M.eval(session, code, clock)
       return tostring(caught)
     end)
     local values = {}
+    local context={left=1024,seen={}}
     if ok then
       for i = 1, returned.n do
-        values[i] = export_value(returned[i], 0)
+        values[i] = returned[i] == nil and "nil" or export_value(returned[i], 0, context)
       end
-      result = { ok = true, values = values, output = "" }
+      result = { ok = true, values = values, output = "", truncated = context.truncated or nil }
     else
       result = { ok = false, error = err, values = {}, output = "" }
     end
@@ -128,6 +151,7 @@ function M.eval(session, code, clock)
     text = string.sub(text, 1, OUTPUT_LIMIT)
   end
   result.output = text
+  if lines.truncated then result.truncated=true end
   local elapsed = clock() - started
   if elapsed >= 3 then
     session.latched = true
@@ -148,10 +172,15 @@ function M.ingest(session, pending, message, keep, forward)
   if M.note_watchdog(session, message) then
     return pending
   end
+  if type(message) == "table" and message.type == "emergency" then
+    session.latched = true
+    if session.state then session.state.emergency = true end
+  end
   local command = keep(pending, message)
   if type(message) == "table" and message.type == "clear_emergency"
-      and type(command) == "table" and command.type == "clear_emergency" then
-    forward(command)
+      and type(command) == "table" then
+    local accepted = command.type=="clear_emergency" or command[#command] and command[#command].type=="clear_emergency"
+    if accepted and forward then forward({type="clear_emergency"}) end
   end
   return command
 end
@@ -174,20 +203,27 @@ function M.repeat_wired(message, transmit, wired_side, sender_id)
 end
 
 function M.write_file(fs, path, content)
-  if type(path) ~= "string" or path == "" then
+  if type(path) ~= "string" or path == "" or type(content) ~= "string" then
     return { ok = false, error = "bad path" }
   end
   local tmp = path .. ".tmp"
+  if fs.exists(tmp) then return {ok=false,error="temporary file exists; recover previous write first"} end
   local handle = fs.open(tmp, "w")
   if handle == nil then
     return { ok = false, error = "open failed" }
   end
   handle.write(content or "")
   handle.close()
-  if fs.exists(path) then
-    fs.delete(path)
+  local backup = path .. ".ship-shell-backup"
+  if fs.exists(backup) then return {ok=false,error="backup exists; recover previous write first"} end
+  local existed=fs.exists(path)
+  if existed then fs.move(path,backup) end
+  local ok,err=pcall(fs.move,tmp,path)
+  if not ok then
+    if existed then fs.move(backup,path) end
+    return {ok=false,error=tostring(err)}
   end
-  fs.move(tmp, path)
+  if existed then fs.delete(backup) end
   return { ok = true, values = {}, output = "" }
 end
 
@@ -199,9 +235,11 @@ function M.read_file(fs, path)
   if handle == nil then
     return { ok = false, error = "open failed", values = {}, output = "" }
   end
-  local body = handle.readAll()
+  local body = handle.read and handle.read(96*1024+1) or handle.readAll()
   handle.close()
-  return { ok = true, content = body or "", values = {}, output = "" }
+  local truncated=type(body)=="string" and #body>96*1024
+  if truncated then body=body:sub(1,96*1024) end
+  return { ok = true, content = body or "", values = {}, output = "", truncated=truncated or nil }
 end
 
 function M.reboot(send, sleep, reboot)
@@ -210,7 +248,7 @@ function M.reboot(send, sleep, reboot)
   reboot()
 end
 
-function M.handle(session, msg, io)
+local function handle(session, msg, io)
   if type(msg) ~= "table" then
     return nil
   end
@@ -252,6 +290,12 @@ function M.handle(session, msg, io)
   return nil
 end
 
+function M.handle(session,msg,io)
+  local ok,result = pcall(handle,session,msg,io)
+  if ok then return result end
+  return {type="result",id=type(msg)=="table" and msg.id or nil,ok=false,error=tostring(result),values={},output=""}
+end
+
 function M.status(session)
   local state = session.state or {}
   local ship = session.ship or {}
@@ -272,6 +316,8 @@ function M.status(session)
     horizontal_speed = math.sqrt(vx * vx + vz * vz),
     heading = ship.heading,
     su = session.su,
+    devices = session.cfg and session.cfg.names,
+    diag_elevation = state.diag_elevation,
   }
 end
 

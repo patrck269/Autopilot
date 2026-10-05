@@ -36,10 +36,10 @@ A.eq(keep.phase, "track", "outside brake distance")
 local no_sample = auto.step({
   phase = "track", y = 400, dist = 20, speed = 10, accel = nil, profile = "warp",
 })
-A.eq(no_sample.phase, "track", "wait for an accel sample")
+A.eq(no_sample.phase, "brake", "fallback acceleration brakes without a sample")
 
 local arrived = auto.step({
-  phase = "brake", y = 400, dist = 10, speed = 1, accel = 2, profile = "warp",
+  phase = "brake", y = 400, dist = 10, speed = 0, accel = 2, profile = "warp",
 })
 A.eq(arrived.phase, "descend", "within 10")
 A.eq(arrived.vertical, "descend", "descend")

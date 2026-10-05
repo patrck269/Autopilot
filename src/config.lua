@@ -1,9 +1,10 @@
+local numeric = require("numeric")
 local M = {}
 
-local MAX_RPM = 32769
+local MAX_RPM = 32769 -- Match the installed controller limit; nonfinite values fail closed.
 
 function M.clamp_rpm(rpm)
-  if type(rpm) ~= "number" then
+  if not numeric.finite(rpm) then
     return 0
   end
   if rpm > MAX_RPM then
@@ -18,6 +19,12 @@ end
 function M.default()
   return {
     max_rpm = MAX_RPM,
+    stick_timeout = 0.35,
+    velocity_response = 1,
+    forward_accel = 50 / 15,
+    side_accel = 0.5,
+    yaw_damping = 2,
+    frame = { forward = {x=1,y=0,z=0}, right = {x=0,y=0,z=-1}, up = {x=0,y=1,z=0} },
     climb_rpm = 256,
     climb_rate = 4,
     altitude_deadzone = 8,

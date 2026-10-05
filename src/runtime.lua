@@ -10,7 +10,7 @@ local function write_all(device, value)
   end
 end
 
-function M.apply(outputs, devices)
+local function apply(outputs, devices)
   for name, rpm in pairs(outputs.rsc) do
     local device = devices[name]
     if device ~= nil and device.setTargetSpeed ~= nil then
@@ -47,4 +47,21 @@ function M.apply(outputs, devices)
   end
 end
 
+function M.apply(outputs,devices)
+  local failures={}
+  local guarded={}
+  for name,device in pairs(devices) do
+    local name,device = name,device
+    guarded[name]=setmetatable({},{__index=function(_,method)
+      local fn=device[method]
+      if type(fn)~="function" then return fn end
+      return function(...)
+        local ok,err=pcall(fn,...)
+        if not ok then failures[#failures+1]=name..": "..tostring(err) end
+      end
+    end})
+  end
+  apply(outputs,guarded)
+  if #failures>0 then error(table.concat(failures,"; "),0) end
+end
 return M

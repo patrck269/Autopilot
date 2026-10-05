@@ -9,18 +9,14 @@ local diagnostic = require("diagnostic")
 local jobs = require("jobs")
 local pid = require("pid")
 local stress = require("stress")
+local numeric = require("numeric")
+local frame = require("frame")
+local control = require("control")
+local protocol = require("protocol")
 
 local M = {}
 
-local function wrap(angle)
-  while angle > math.pi do
-    angle = angle - math.pi * 2
-  end
-  while angle < -math.pi do
-    angle = angle + math.pi * 2
-  end
-  return angle
-end
+local wrap = numeric.wrap
 
 function M.new_state()
   return {
@@ -59,6 +55,8 @@ function M.new_state()
     hover_diag = false,
     diag_selection = nil,
     diag_elevation = 0,
+    outputs_disabled = false,
+    forward_integral = 0,
   }
 end
 
@@ -96,15 +94,20 @@ local function status_of(state, ship, su, outage_name)
     stop_distance = state.stop_distance,
     job = state.job,
     outage = outage_name,
+    emergency = state.emergency,
+    phase = state.phase,
+    hover_rpm = state.hover_rpm,
+    diag_elevation = state.diag_elevation,
   }
 end
 
-local function apply_command(state, command)
+local function apply_command(state, command, ship, current_rpm)
   if command == nil then
     return
   end
   if command.type == "emergency" then
     state.emergency = true
+    state.stick = {x=0,y=0,z=0}
     if state.mode == "diagnostic" then
       state.mode = "idle"
     end
@@ -121,6 +124,8 @@ local function apply_command(state, command)
     return
   end
   if command.type == "diagnostic_enter" then
+    state.outputs_disabled = false
+    if command.hover and not state.hover_diag then state.diag_elevation = math.abs(current_rpm or state.hover_rpm or 0) end
     state.diagnostic = true
     state.hover_diag = command.hover
     state.mode = "diagnostic"
@@ -132,19 +137,26 @@ local function apply_command(state, command)
     state.hover_diag = false
     state.diag_selection = nil
     state.mode = "idle"
+    state.outputs_disabled = true
+    state.hover_rpm, state.x_rpm, state.pid_integral = 0,0,0
+    state.job, state.waypoint_x, state.waypoint_z = nil,nil,nil
+    state.altitude_set = false
+    state.target_speed,state.ramp_speed = 0,0
+    state.stick = {x=0,y=0,z=0}
     return
   end
   if command.type == "diagnostic_set" then
-    state.diag_selection = command
+    if state.diagnostic then state.diag_selection = command end
     return
   end
   if command.type == "diagnostic_elevation" then
-    state.diag_elevation = command.rpm
+    if state.diagnostic and state.hover_diag then state.diag_elevation = command.rpm end
     return
   end
   if state.diagnostic then
     return
   end
+  state.outputs_disabled = false
   if command.type == "stick" then
     state.mode = "manual"
     state.stick = { x = command.x, y = command.y, z = command.z }
@@ -155,6 +167,7 @@ local function apply_command(state, command)
   end
   if command.type == "set_mode" then
     state.mode = command.mode
+    if not state.altitude_set and state.job ~= "altitude" then state.altitude = ship.y; state.pid_integral = 0 end
     if command.mode == "semi" then
       state.ramp_speed = 0
       state.ramp_rate = speed.ramp_rate(0, state.target_speed)
@@ -198,11 +211,12 @@ local function apply_command(state, command)
     return
   end
   if command.type == "set_speed" then
-    state.target_speed = command.speed
-    state.ramp_rate = speed.ramp_rate(state.ramp_speed, command.speed)
+    state.target_speed = speed.cap(command.speed, 35)
+    state.ramp_rate = speed.ramp_rate(state.ramp_speed, state.target_speed)
     return
   end
   if command.type == "set_waypoint" or command.type == "return_to_user" then
+    state.cancel = false
     state.waypoint_x = command.x
     state.waypoint_z = command.z
     state.mode = "auto"
@@ -218,8 +232,9 @@ end
 
 function M.tick(state, input)
   local cfg = input.config
-  apply_command(state, input.command)
   local ship = input.ship
+  local forward_speed = ship.forward_speed or ship.vx
+  local side_speed = ship.side_speed or ship.vz
   if not state.seeded then
     local recalled = state.altitude_set and state.hover_rpm > 0
     if input.current_elevation_rpm ~= nil and not recalled then
@@ -235,24 +250,18 @@ function M.tick(state, input)
     end
     state.seeded = true
   end
-  if input.command ~= nil
-      and input.command.type == "set_mode"
-      and not state.emergency
-      and not state.diagnostic
-      and state.mode == input.command.mode
-      and not state.altitude_set
-      and state.job ~= "altitude"
-      and ship ~= nil
-      and ship.y ~= nil then
-    state.altitude = ship.y
-    state.pid_integral = 0
+  for _,command in ipairs(input.commands or {}) do
+    apply_command(state, protocol.validate(command), ship, input.current_elevation_rpm)
   end
-  if state.emergency then
+  apply_command(state, protocol.validate(input.command), ship, input.current_elevation_rpm)
+  if state.emergency or state.outputs_disabled then
+    state.modeled_su = 0
     return state, clamp_outputs(mix.zero()), status_of(state, input.ship, input.su, nil)
   end
   if input.ready == false then
     local held = mix.zero()
-    held.rsc.rsc11 = state.hover_rpm
+    -- An incomplete rig cannot safely actuate flight or diagnostics.
+    state.modeled_su = 0
     local status = status_of(state, ship, input.su, nil)
     status.mode = "blocked"
     return state, clamp_outputs(held), status
@@ -288,6 +297,8 @@ function M.tick(state, input)
   local vx, vy, vz = 0, 0, 0
   local vertical = "hold"
   local ref = 3
+  local nav_active = false
+  local feedforward = 0
   if state.cancel then
     state.mode = "idle"
     state.job = nil
@@ -308,51 +319,46 @@ function M.tick(state, input)
   local manual_fly = state.mode == "manual" and (state.stick.x ~= 0 or state.stick.y ~= 0 or state.stick.z ~= 0)
   if state.job == "hover" and not manual_fly then
     vertical = "hold"
-  elseif state.job == "altitude" and not manual_fly then
+  elseif state.job == "altitude" and not manual_fly and state.mode ~= "semi" then
     vertical = "hold"
   elseif manual_fly or state.mode == "manual" then
     vx, vy, vz = manual.velocity(state.stick.x, state.stick.y, state.stick.z)
     if state.stick.x ~= 0 then
       state.brake_x = nil
-      state.x_rpm = manual.x_rpm(state.x_rpm, ship.vx, vx, cfg.hover_step)
     end
-    if state.stick.z > 0 then
+    if state.stick.z ~= 0 then
       state.brake_elev = nil
-      local lift = cfg.hover_equilibrium or 430
-      if state.hover_rpm < lift then
-        state.hover_rpm = lift
-      end
-      state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
-      if state.hover_rpm < lift then
-        state.hover_rpm = lift + cfg.hover_step
-      end
-    elseif state.stick.z < 0 then
-      state.brake_elev = nil
-      state.hover_rpm = manual.x_rpm(state.hover_rpm, ship.vy, vz, cfg.hover_step, true)
+      local a = control.accel(vz, ship.vy, ship.dt, 3, 1)
+      state.hover_rpm = config.clamp_rpm((cfg.hover_equilibrium or 430) * ((10+a)/10)^(1/1.2) * pid.thrust_scale(ship.y))
     end
     vertical = "hold"
     ref = 3
   elseif state.mode == "semi" then
     state.ramp_speed = speed.apply_ramp(state.ramp_speed, state.target_speed, state.ramp_rate, ship.dt)
-    vx = speed.cap(state.ramp_speed, 35)
+    local available=math.sqrt(math.max(0,35^2-side_speed^2))
+    vx = speed.cap(state.ramp_speed, available)
+    if state.ramp_speed ~= state.target_speed then feedforward = state.ramp_rate end
     ref = 35
     vertical = "hold"
   elseif state.mode == "auto" and state.waypoint_x ~= nil and state.waypoint_z ~= nil then
     local dx = state.waypoint_x - ship.x
     local dz = state.waypoint_z - ship.z
     local dist = math.sqrt(dx * dx + dz * dz)
+    nav_active = true
+    if dist > 0.5 then state.bearing = numeric.atan2(-dz, dx) end
     local stepped = auto.step({
       phase = state.phase,
       y = ship.y,
       dist = dist,
       speed = horiz,
-      accel = state.measured_accel,
+      accel = math.min(state.measured_accel or cfg.forward_accel, cfg.forward_accel),
       profile = state.profile,
     })
     state.phase = stepped.phase
-    vx = stepped.horiz_speed
-    if stepped.reverse then
-      vx = -horiz
+    local desired = math.min(stepped.horiz_speed, math.sqrt(math.max(0,2*cfg.forward_accel*(dist-5))))
+    if dist > 0 and not stepped.reverse then
+      vx,vy = frame.project(ship,dx/dist*desired,dz/dist*desired)
+      if math.abs(wrap(state.bearing-(ship.heading or 0)))>0.3 then vx=0 end
     end
     vertical = stepped.vertical
     ref = 50
@@ -385,12 +391,12 @@ function M.tick(state, input)
   local stop_y = (not stick_vertical) and (state.job == "hover" or (state.job ~= "altitude" and state.mode == "manual" and state.stick.z == 0))
   local x_hold, z_hold, y_hold = 0, 0, rest_elevation()
   if stop_x then
-    x_hold, state.brake_x = jobs.hold_stop(state.brake_x, ship.vx, cfg.ship_mass, 0, false)
+    x_hold, state.brake_x = jobs.hold_stop(state.brake_x, forward_speed, cfg.ship_mass, 0, false)
   else
     state.brake_x = nil
   end
   if stop_z then
-    z_hold, state.brake_z = jobs.hold_stop(state.brake_z, ship.vz, cfg.ship_mass, 0, false)
+    z_hold, state.brake_z = jobs.hold_stop(state.brake_z, side_speed, cfg.ship_mass, 0, false)
   else
     state.brake_z = nil
   end
@@ -409,7 +415,7 @@ function M.tick(state, input)
     state.brake_elev = nil
   end
   if state.brake_x ~= nil then
-    local distance = jobs.stopping_distance(ship.vx, state.brake_x.rpm, cfg.ship_mass)
+    local distance = jobs.stopping_distance(forward_speed, state.brake_x.rpm, cfg.ship_mass)
     if distance > state.stop_distance and distance < math.huge then
       state.stop_distance = distance
     end
@@ -463,15 +469,17 @@ function M.tick(state, input)
     end
   end
 
-  local rsc10, relay2 = mix.x(vx, ref)
+  local rsc10 = 0
   if stop_x then
-    rsc10 = x_hold
-  elseif state.mode == "manual" then
-    rsc10 = state.x_rpm
+    rsc10 = x_hold * pid.thrust_scale(ship.y)
+  elseif state.mode=="manual" or state.mode=="semi" or nav_active then
+    local a=control.accel(vx,forward_speed,ship.dt,cfg.forward_accel,cfg.velocity_response,feedforward)
+    rsc10=control.prop_rpm(a,cfg.hover_equilibrium)*pid.thrust_scale(ship.y)
   end
+  state.x_rpm = rsc10
   rsc10 = config.clamp_rpm(rsc10)
   outputs.rsc.rsc10 = rsc10
-  outputs.relays.relay2 = relay2
+  outputs.relays.relay2 = speed.relay2_level(rsc10, cfg.hover_equilibrium)
   local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
   if stop_y then
     rsc11 = y_hold
@@ -485,22 +493,13 @@ function M.tick(state, input)
     pitch_err = ship.pitch
     roll_err = ship.roll
   end
-  local rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, 0, cfg.side_gain)
-  if state.mode == "manual" and state.stick.y ~= 0 then
-    local side_rpm = manual.rcs_rpm(math.abs(state.stick.y), cfg.ship_mass)
-    rsc6, rsc7, rsc8, rsc9 = 0, 0, 0, 0
-    if state.stick.y > 0 then
-      rsc6 = side_rpm
-      rsc8 = side_rpm
-    else
-      rsc7 = side_rpm
-      rsc9 = side_rpm
-    end
+  local lateral = 0
+  if state.mode == "manual" and state.stick.y ~= 0 or nav_active or state.mode=="semi" then
+    lateral = control.accel(vy, side_speed, ship.dt, cfg.side_accel, cfg.velocity_response)
+  elseif stop_z then
+    -- Reuse the bounded stopping force, converting from the propeller model.
+    lateral = (z_hold < 0 and -1 or 1) * jobs.thrust(z_hold, cfg.ship_mass) / cfg.ship_mass
   end
-  outputs.rsc.rsc6 = rsc6
-  outputs.rsc.rsc7 = rsc7
-  outputs.rsc.rsc8 = rsc8
-  outputs.rsc.rsc9 = rsc9
   local kind, which = outage.classify(ship.pitch_rate, ship.roll_rate, cfg.outage_threshold)
   local outage_name = nil
   local lift = 0
@@ -550,34 +549,18 @@ function M.tick(state, input)
     end
   else
     state.balance_time = 0
+    state.balance_side = nil
     local u2, u3, u4, u5 = mix.ups(pitch_err, roll_err, lift, cfg.up_gain)
     outputs.rsc.rsc2 = u2
     outputs.rsc.rsc3 = u3
     outputs.rsc.rsc4 = u4
     outputs.rsc.rsc5 = u5
-    if state.mode == "manual" and state.stick.z > 0 then
-      local vert_rpm = manual.rcs_rpm(state.stick.z, cfg.ship_mass)
-      outputs.rsc.rsc2 = vert_rpm
-      outputs.rsc.rsc3 = vert_rpm
-      outputs.rsc.rsc4 = vert_rpm
-      outputs.rsc.rsc5 = vert_rpm
-    end
   end
-  if stop_z then
-    apply_side_brake(outputs, z_hold)
-  end
-  if not (state.mode == "manual" and state.stick.y ~= 0) then
-    local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
-    local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
-    if spin ~= 0 and yaw_err > 0 then
-      outputs.rsc.rsc6 = spin
-      outputs.rsc.rsc7 = spin
-    elseif spin ~= 0 and yaw_err < 0 then
-      outputs.rsc.rsc8 = spin
-      outputs.rsc.rsc9 = spin
-    end
-  end
-  outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
+  local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
+  local yaw = numeric.clamp(yaw_err/math.pi*0.5 - (ship.yaw_rate or 0)*cfg.yaw_damping, -0.5, 0.5)
+  if math.abs(yaw_err)<0.02 and math.abs(ship.yaw_rate or 0)<0.01 then yaw = 0 end
+  outputs.rsc.rsc6, outputs.rsc.rsc7, outputs.rsc.rsc8, outputs.rsc.rsc9 = control.sides(lateral, yaw, cfg.ship_mass)
+  outputs.relays.relay6 = hover.use_reverser(elev_reverse)
   stress.limit_manual(outputs, input.su, input.su_capacity, state.modeled_su)
   state.modeled_su = stress.consumed(outputs)
 

@@ -40,7 +40,11 @@ class MinecraftRcon:
         sock = socket.create_connection((self.host, self.port), timeout=5)
         try:
             self._packet(sock, 1, 3, self.password)
-            self._read_packet(sock)
+            auth = self._read_packet(sock)
+            if auth[1] == 0:
+                auth = self._read_packet(sock)
+            if auth[0] != 1 or auth[1] != 2:
+                raise ConnectionError("rcon authentication failed")
             self._packet(sock, 2, 2, command)
             self._read_packet(sock)
         finally:
@@ -61,7 +65,11 @@ class MinecraftRcon:
 
     def _read_packet(self, sock):
         length = struct.unpack("<i", self._exact(sock, 4))[0]
-        return self._exact(sock, length)
+        if length < 10 or length > 1024*1024:
+            raise ConnectionError("invalid rcon packet length")
+        data = self._exact(sock, length)
+        ident, kind = struct.unpack("<ii",data[:8])
+        return ident,kind,data[8:-2]
 
 
 def server_frame(payload, opcode=0x1):
@@ -100,13 +108,15 @@ def read_frame(conn):
         length = int.from_bytes(_exact(conn, 8), "big")
     mask = _exact(conn, 4) if masked else None
     if length > FRAME_LIMIT:
-        remaining = length
-        while remaining > 0:
-            chunk = conn.recv(min(remaining, 65536))
-            if not chunk:
-                raise ConnectionError("socket closed")
-            remaining -= len(chunk)
+        # Consume modest oversized messages so the close does not reset before
+        # the client receives its error. Reject enormous lengths immediately.
+        if length <= FRAME_LIMIT * 2:
+            _exact(conn,length)
         return "too_large", b""
+    if not (header[0] & 0x80) or header[0] & 0x70 or not masked:
+        raise ConnectionError("unsupported websocket frame")
+    if opcode >= 8 and length > 125:
+        raise ConnectionError("oversized control frame")
     payload = _exact(conn, length) if length else b""
     if mask:
         payload = bytes(payload[i] ^ mask[i % 4] for i in range(len(payload)))
@@ -129,6 +139,7 @@ class Bridge:
         self.armed = False
         self.latched = False
         self.shutdown_sent = False
+        self.shutdown_retry_at = 0
         self.status = None
         self.last_status_at = None
         self.next_id = 1
@@ -142,8 +153,8 @@ class Bridge:
 
     def serve(self):
         host = self.settings.get("ws_host") or "127.0.0.1"
-        ws_port = int(self.settings.get("ws_port") or 0)
-        http_port = int(self.settings.get("http_port") or 8767)
+        ws_port = int(self.settings.get("ws_port", 8766))
+        http_port = int(self.settings.get("http_port", 8767))
         self.ws_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ws_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.ws_sock.bind((host, ws_port))
@@ -165,6 +176,10 @@ class Bridge:
 
     def close(self):
         self.running = False
+        with self.lock:
+            targets = [c for c in (self.engine_conn,self.watchdog_conn) if c is not None]
+        for conn in targets:
+            self._close_socket(conn)
         if self.http_server is not None:
             self.http_server.shutdown()
         if self.ws_sock is not None:
@@ -196,6 +211,7 @@ class Bridge:
         with self.lock:
             if (
                 not self.shutdown_sent
+                and self.clock.time() >= self.shutdown_retry_at
                 and self.eval_sent_at is not None
                 and not self.frame_after_eval
                 and self.engine_id is not None
@@ -205,7 +221,13 @@ class Bridge:
                 command = "computercraft shutdown #%s" % self.engine_id
         if command is not None:
             print("shutdown %s" % command, flush=True)
-            self.rcon.send(command)
+            try:
+                self.rcon.send(command)
+            except (OSError, ConnectionError) as error:
+                with self.lock:
+                    self.shutdown_sent = False
+                    self.shutdown_retry_at = self.clock.time()+5
+                print("RCON shutdown failed: %s" % error, flush=True)
 
     def _ws_loop(self):
         while self.running:
@@ -234,14 +256,16 @@ class Bridge:
                 if opcode != 1 or not payload:
                     continue
                 msg = json.loads(payload.decode("utf-8"))
+                if not isinstance(msg, dict):
+                    raise ConnectionError("message must be an object")
                 if role is None:
                     role = self._hello(conn, msg)
                     if role is None:
                         return
                     continue
                 if role == "engine":
-                    self._on_engine(msg)
-        except (ConnectionError, OSError, json.JSONDecodeError, UnicodeError):
+                    self._on_engine(msg, conn)
+        except (ConnectionError, OSError, ValueError, TypeError, RecursionError, UnicodeError):
             return
         finally:
             self._detach(conn)
@@ -251,9 +275,10 @@ class Bridge:
                 pass
 
     def _handshake(self, conn):
+        conn.settimeout(10)
         data = b""
         while b"\r\n\r\n" not in data:
-            chunk = conn.recv(4096)
+            chunk = conn.recv(1)
             if not chunk:
                 raise ConnectionError("handshake closed")
             data += chunk
@@ -276,6 +301,7 @@ class Bridge:
             "\r\n" % base64.b64encode(accept).decode("ascii")
         )
         conn.sendall(response.encode("ascii"))
+        conn.settimeout(None)
 
     def _hello(self, conn, msg):
         token = msg.get("token")
@@ -283,24 +309,39 @@ class Bridge:
             msg.get("type") != "hello"
             or not self.token
             or not isinstance(token, str)
-            or not hmac.compare_digest(token, self.token)
+            or not hmac.compare_digest(token.encode("utf-8"), self.token.encode("utf-8"))
         ):
             return None
         role = msg.get("role")
         if role == "engine":
             engine_id = msg.get("id")
-            if not isinstance(engine_id, int):
+            if type(engine_id) is not int or engine_id < 0:
                 return None
             with self.lock:
+                old = self.engine_conn
                 self.engine_conn = conn
                 self.engine_id = engine_id
+                self.eval_id = self.eval_sent_at = None
+                self.shutdown_sent = False
+                self.shutdown_retry_at = 0
+                self.frame_after_eval = False
+                self.status = None
+                self.last_status_at = None
+                for waiter in self.waiters.values():
+                    waiter["result"] = {"ok":False,"error":"engine replaced"}
+                    waiter["event"].set()
+            if old is not None and old is not conn:
+                self._close_socket(old)
             print("engine connected %s" % engine_id, flush=True)
             self._send_json(conn, {"type": "ready"})
             self._arm_watchdog()
             return "engine"
         if role == "watchdog":
             with self.lock:
+                old = self.watchdog_conn
                 self.watchdog_conn = conn
+            if old is not None and old is not conn:
+                self._close_socket(old)
             print("watchdog connected", flush=True)
             self._send_json(conn, {"type": "ready"})
             self._arm_watchdog()
@@ -317,34 +358,41 @@ class Bridge:
             with self.lock:
                 self.armed = True
 
+    @staticmethod
+    def _close_socket(conn):
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        conn.close()
+
     def _detach(self, conn):
-        disarm = None
+        # A lost transport is not proof that persistent actuator setpoints stopped.
+        # Keep the independent watchdog armed until explicit operator recovery.
         with self.lock:
             if self.engine_conn is conn:
                 self.engine_conn = None
-                disarm = self.watchdog_conn
+                for waiter in self.waiters.values():
+                    waiter["result"] = {"ok":False,"error":"engine disconnected"}
+                    waiter["event"].set()
                 print("engine disconnected", flush=True)
             if self.watchdog_conn is conn:
                 self.watchdog_conn = None
                 print("watchdog disconnected", flush=True)
-        if disarm is not None:
-            try:
-                self._send_json(disarm, {"type": "disarm"})
-            except OSError:
-                pass
-            with self.lock:
-                if not self.latched:
-                    self.armed = False
 
-    def _on_engine(self, msg):
+    def _on_engine(self, msg, source=None):
         kind = msg.get("type")
         with self.lock:
+            if source is not None and self.engine_conn is not source:
+                return
             if self.eval_sent_at is not None:
                 self.frame_after_eval = True
             if kind == "status":
                 self.status = msg
                 self.last_status_at = self.clock.time()
             if kind == "result":
+                if not isinstance(msg.get("id"), (str,int)):
+                    return
                 waiter = self.waiters.get(msg.get("id"))
                 if waiter is not None:
                     waiter["result"] = msg
@@ -368,10 +416,19 @@ class Bridge:
                 self.eval_sent_at = self.clock.time()
                 self.eval_id = request_id
                 self.frame_after_eval = False
+                self.shutdown_sent = False
+                self.shutdown_retry_at = 0
                 print("eval %s" % request_id, flush=True)
         body = dict(payload)
         body["id"] = request_id
-        self._send_json(conn, body)
+        try:
+            self._send_json(conn, body)
+        except (OSError, ValueError) as error:
+            with self.lock:
+                self.waiters.pop(request_id, None)
+                if self.eval_id == request_id:
+                    self.eval_id = self.eval_sent_at = None
+            return {"ok":False,"error":str(error)}
         deadline = self.clock.time() + timeout
         while self.clock.time() < deadline:
             if event.wait(0.01):
@@ -392,7 +449,10 @@ class Bridge:
                 pass
 
     def _send_json(self, conn, obj):
-        self._send_raw(conn, server_frame(json.dumps(obj, separators=(",", ":")).encode("utf-8")))
+        data = json.dumps(obj, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        if len(data) > FRAME_LIMIT:
+            raise ValueError("too_large")
+        self._send_raw(conn, server_frame(data))
 
     def _send_raw(self, conn, frame):
         with self.send_lock:
@@ -416,13 +476,21 @@ class Bridge:
                 self.wfile.write(data)
 
             def _read_json(self):
-                length = int(self.headers.get("Content-Length") or "0")
-                if length > FRAME_LIMIT:
+                try:
+                    length = int(self.headers.get("Content-Length") or "0")
+                except ValueError:
+                    self.close_connection = True
+                    raise ValueError("bad content length")
+                if length < 0 or length > FRAME_LIMIT:
+                    self.close_connection = True
                     return None
                 raw = self.rfile.read(length) if length else b""
                 if not raw:
                     return {}
-                return json.loads(raw.decode("utf-8"))
+                value = json.loads(raw.decode("utf-8"))
+                if not isinstance(value, dict):
+                    raise ValueError("body must be an object")
+                return value
 
             def do_GET(self):
                 path = self.path.split("?", 1)[0]
@@ -448,7 +516,7 @@ class Bridge:
                 path = self.path.split("?", 1)[0]
                 try:
                     body = self._read_json()
-                except (json.JSONDecodeError, UnicodeError):
+                except (ValueError, UnicodeError):
                     self._json(400, {"ok": False, "error": "bad json"})
                     return
                 if body is None:

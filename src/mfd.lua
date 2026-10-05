@@ -16,8 +16,13 @@ function M.controls(w, h)
     local y = h - (rows - row_index + 1) * height + 1
     local x = 1
     for _, page in ipairs(pages) do
+      local wanted=0
+      for _,label in ipairs(pages) do wanted=wanted+#label+PAD*2 end
       local width = #page + PAD * 2
-      if x <= w and y >= 1 then
+      if wanted+#pages-1>w then width=math.floor((w-(#pages-1))/#pages) end
+      height=math.min(height,h)
+      y=math.max(1,y)
+      if width>0 and x+width-1 <= w and y >= 1 then
         list[#list + 1] = {
           page = page,
           label = page,

@@ -23,8 +23,27 @@ function M.read_text(open, path)
   return text
 end
 
+M.FRAME_LIMIT = 96 * 1024
 function M.encode(value)
-  return textutils.serializeJSON(value)
+  local ok,encoded = pcall(textutils.serializeJSON,value)
+  if not ok then return textutils.serializeJSON({type="result",ok=false,error="could not encode result"}) end
+  if #encoded <= M.FRAME_LIMIT then return encoded end
+  local small = {type=value.type,id=value.id,ok=value.ok,truncated=true,values={},output=""}
+  if #textutils.serializeJSON(small)>M.FRAME_LIMIT then
+    return textutils.serializeJSON({type="result",ok=false,error="result metadata too large",truncated=true})
+  end
+  for _,key in ipairs({"content","output","error"}) do
+    if type(value[key])=="string" then
+      local lo,hi=0,#value[key]
+      while lo<hi do
+        local mid=math.floor((lo+hi+1)/2)
+        small[key]=value[key]:sub(1,mid)
+        if #textutils.serializeJSON(small)<=M.FRAME_LIMIT then lo=mid else hi=mid-1 end
+      end
+      small[key]=value[key]:sub(1,lo)
+    end
+  end
+  return textutils.serializeJSON(small)
 end
 
 function M.decode(text)
@@ -77,6 +96,7 @@ function M.serve(url, token, role, on_message, on_idle, session)
   if not ws then
     error(err or "websocket failed", 0)
   end
+  local ok, failure = pcall(function()
   ws.send(M.encode({
     type = "hello",
     id = os.getComputerID(),
@@ -95,7 +115,8 @@ function M.serve(url, token, role, on_message, on_idle, session)
     error("not ready", 0)
   end
   while true do
-    local raw = ws.receive(0.5)
+    local raw, reason = ws.receive(0.5)
+    if raw == nil and reason ~= nil and reason ~= "Timed out" then error(reason,0) end
     if raw ~= nil then
       local msg = M.decode(raw)
       if type(msg) == "table" then
@@ -116,6 +137,9 @@ function M.serve(url, token, role, on_message, on_idle, session)
       end
     end
   end
+  end)
+  pcall(ws.close)
+  if not ok then error(failure,0) end
 end
 
 return M

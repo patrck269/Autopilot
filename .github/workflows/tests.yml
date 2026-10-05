@@ -1,0 +1,13 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - run: lua5.4 tests/run.lua
+      - run: python3 tools/ship-shell/test_regressions.py
+      - run: python3 tools/ship-shell/test_bridge.py
+        env:
+          LUA_EXE: lua5.4

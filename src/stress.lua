@@ -1,7 +1,8 @@
 local M = {}
 
 -- Create's network stress is impact * abs(RPM). The four elevation props are
--- clockwork bearings (impact 4) on rsc11. Each RCS output is one vstuff
+-- clockwork bearings (impact 4) on rsc11; rsc10 has X_PROPS forward bearings.
+-- Each RCS output is one vstuff
 -- mechanical thruster (impact 8).
 M.CAPACITY = 479231
 -- Leave room for shafts and the rest of the network. Sitting on the exact
@@ -11,12 +12,15 @@ M.USABLE = 431308
 M.RCS_IMPACT = 8
 M.ELEVATION_IMPACT = 4
 M.ELEVATION_PROPS = 4
+M.X_IMPACT = 4
+M.X_PROPS = 1
 
 local RCS = { "rsc2", "rsc3", "rsc4", "rsc5", "rsc6", "rsc7", "rsc8", "rsc9" }
 
 function M.consumed(outputs)
   local rsc = outputs.rsc or {}
   local su = math.abs(rsc.rsc11 or 0) * M.ELEVATION_PROPS * M.ELEVATION_IMPACT
+  su = su + math.abs(rsc.rsc10 or 0)*M.X_PROPS*M.X_IMPACT
   for _, name in ipairs(RCS) do
     su = su + math.abs(rsc[name] or 0) * M.RCS_IMPACT
   end
@@ -57,7 +61,8 @@ function M.limit_manual(outputs, measured, capacity, previous)
   for _, name in ipairs(RCS) do
     rcs_abs = rcs_abs + math.abs(rsc[name] or 0)
   end
-  local rcs_su = rcs_abs * M.RCS_IMPACT
+  local x_su = math.abs(rsc.rsc10 or 0)*M.X_PROPS*M.X_IMPACT
+  local rcs_su = rcs_abs * M.RCS_IMPACT + x_su
   if elev_su + rcs_su <= room then
     return outputs
   end
@@ -68,12 +73,14 @@ function M.limit_manual(outputs, measured, capacity, previous)
     else
       rsc.rsc11 = max_elev
     end
+    rsc.rsc10 = 0
     for _, name in ipairs(RCS) do
       rsc[name] = 0
     end
     return outputs
   end
   local scale = (room - elev_su) / rcs_su
+  rsc.rsc10 = (rsc.rsc10 or 0) * scale
   for _, name in ipairs(RCS) do
     rsc[name] = (rsc[name] or 0) * scale
   end
@@ -81,6 +88,7 @@ function M.limit_manual(outputs, measured, capacity, previous)
     local left = M.consumed(outputs) - elev_su
     if left > 0 then
       local fix = (room - elev_su) / left
+      rsc.rsc10 = (rsc.rsc10 or 0)*fix
       for _, name in ipairs(RCS) do
         rsc[name] = (rsc[name] or 0) * fix
       end

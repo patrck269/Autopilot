@@ -141,7 +141,7 @@ local function draw(state, status, link)
   text(rightX + 1, 13, "C  Clear emergency", colors.white, colors.red, rightText)
 
   fill(1, height, width, 1, colors.black)
-  local line = status
+  local line = state.field and ("Typing "..state.field..": "..state.buffer) or status
   if #line > width - 1 then
     line = string.sub(line, 1, width - 1)
   end
@@ -157,7 +157,10 @@ draw(state, status, link)
 while true do
   local event, p1, p2 = os.pullEvent()
   local message = nil
-  if event == "rednet_message" then
+  if event == "timer" and p1 == repeat_timer then
+    message = command_ui.repeat_stick(state)
+    repeat_timer = os.startTimer(0.1)
+  elseif event == "rednet_message" then
     local applied = command_status.apply(p2)
     if applied ~= nil then
       link = applied
@@ -178,7 +181,7 @@ while true do
     if link == nil then
       status = describe(message, state)
     end
-  elseif state.field ~= nil and link == nil then
+  elseif state.field ~= nil then
     status = describe(nil, state)
   end
   if event == "key" or event == "key_up" or event == "term_resize" then

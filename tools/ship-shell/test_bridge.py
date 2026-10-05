@@ -346,7 +346,7 @@ def prove_file_and_reboot(conn, rest, proc, root, http_port):
     )
     if message.get("type") != "write" or message.get("content") != "new":
         raise SystemExit("bridge dropped the replace: %s" % message)
-    replaced = ["w note.txt.tmp", "delete note.txt", "move note.txt.tmp note.txt"]
+    replaced = ["w note.txt.tmp", "move note.txt note.txt.ship-shell-backup", "move note.txt.tmp note.txt", "delete note.txt.ship-shell-backup"]
     if not body.get("ok") or reply["ops"] != replaced:
         raise SystemExit("replace failed: %s ops=%s" % (body, reply["ops"]))
     print("file replaced %s" % " ".join(reply["ops"]), flush=True)
