@@ -1,4 +1,3 @@
-local stress_model=require("stress")
 local M = {}
 
 local function hypot(a, b)
@@ -71,10 +70,6 @@ end
 local FLIGHT_PARTS = {
   { id = "rsc10", label = "X prop" },
   { id = "rsc11", label = "Elev prop" },
-  { id = "rsc2", label = "SB up" },
-  { id = "rsc3", label = "PB up" },
-  { id = "rsc4", label = "SS up" },
-  { id = "rsc5", label = "PS up" },
   { id = "rsc6", label = "PB side" },
   { id = "rsc7", label = "SA side" },
   { id = "rsc8", label = "PA side" },
@@ -119,10 +114,6 @@ function M.engines(outputs, shaft_rpm)
     {
       type = "RCS",
       devices = {
-        device("RSC 2", rsc.rsc2),
-        device("RSC 3", rsc.rsc3),
-        device("RSC 4", rsc.rsc4),
-        device("RSC 5", rsc.rsc5),
         device("RSC 6", rsc.rsc6),
         device("RSC 7", rsc.rsc7),
         device("RSC 8", rsc.rsc8),
@@ -137,10 +128,6 @@ local EMERGENCY_PARTS = {
   { label = "SB prop", rpm = "rsc11", cut = "relay8", x = 1, y = 0 },
   { label = "PS prop", rpm = "rsc11", cut = "relay10", x = 0, y = 1 },
   { label = "SS prop", rpm = "rsc11", cut = "relay9", x = 1, y = 1 },
-  { label = "PB up", rpm = "rsc3", x = 0.15, y = 0.2 },
-  { label = "SB up", rpm = "rsc2", x = 0.85, y = 0.2 },
-  { label = "PS up", rpm = "rsc5", x = 0.15, y = 0.8 },
-  { label = "SS up", rpm = "rsc4", x = 0.85, y = 0.8 },
   { label = "PB side", rpm = "rsc6", x = 0, y = 0.35 },
   { label = "BS side", rpm = "rsc9", x = 1, y = 0.35 },
   { label = "PA side", rpm = "rsc8", x = 0, y = 0.65 },
@@ -150,11 +137,11 @@ local EMERGENCY_PARTS = {
 
 function M.stress(consumed, capacity, outputs)
   local rsc = outputs.rsc or {}
-  local x = math.abs(rsc.rsc10 or 0)*stress_model.X_IMPACT*stress_model.X_PROPS
-  local z = math.abs(rsc.rsc11 or 0)*stress_model.ELEVATION_IMPACT*stress_model.ELEVATION_PROPS
+  local x = math.abs(rsc.rsc10 or 0)
+  local z = math.abs(rsc.rsc11 or 0)
   local rcs = 0
-  for _, name in ipairs({ "rsc2", "rsc3", "rsc4", "rsc5", "rsc6", "rsc7", "rsc8", "rsc9" }) do
-    rcs = rcs + math.abs(rsc[name] or 0)*stress_model.RCS_IMPACT
+  for _, name in ipairs({ "rsc6", "rsc7", "rsc8", "rsc9" }) do
+    rcs = rcs + math.abs(rsc[name] or 0)
   end
   local total = x + z + rcs
   local function share(part)

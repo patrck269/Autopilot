@@ -50,7 +50,13 @@ A.near(v.heading,math.pi/2,1e-9,"rotated heading")
 local function prop_accel(rpm,y)
   return (rpm<0 and -1 or 1)*10*(math.abs(rpm)/(430*pid.thrust_scale(y)))^1.2
 end
-local function force(rpm) return 100000*(math.abs(rpm or 0)/256)^1.2 end
+-- Positive RPM thrusts along the controller's mount. The starboard pair is
+-- mounted opposite the port pair, and a reverse command is a negative RPM.
+local function force(rpm)
+  local mag=100000*(math.abs(rpm or 0)/256)^1.2
+  if (rpm or 0)<0 then return -mag end
+  return mag
+end
 for _,mode in ipairs({"manual","semi"}) do
   ship.vx=0;ship.vz=0;ship.y=62
   state=engine.new_state()

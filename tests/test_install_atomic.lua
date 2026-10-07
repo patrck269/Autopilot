@@ -1,6 +1,6 @@
 local A=dofile("tests/assert.lua")
 local saved={fs=fs,http=http,write=write,printError=printError,reboot=os.reboot,print=print}
-for _,program in ipairs({"engine","command","pocket","watchdog"}) do
+for _,program in ipairs({"command","pocket","watchdog"}) do
   for _,failure in ipairs({"download","commit","none"}) do
     local data={["startup.lua"]="old startup",["src/config.lua"]="old config"}
     local directories={}
@@ -44,5 +44,16 @@ for _,program in ipairs({"engine","command","pocket","watchdog"}) do
     A.eq(fs.exists(".autopilot-install-stage"),nil,"staging cleaned")
   end
 end
+local engine_data = { ["startup.lua"] = "old startup" }
+fs = {
+  exists = function(p) return engine_data[p] ~= nil end,
+  delete = function(p) engine_data[p] = nil end,
+}
+local rebooted = false
+os.reboot = function() rebooted = true end
+local ok = pcall(dofile, "install/engine.lua")
+A.eq(ok, true, "engine-room installer finishes")
+A.eq(rebooted, true, "engine-room installer reboots")
+A.eq(engine_data["startup.lua"], nil, "engine-room installer removes the old startup")
 fs=saved.fs;http=saved.http;write=saved.write;printError=saved.printError;os.reboot=saved.reboot;print=saved.print
 print("installer download and commit rollback passed")

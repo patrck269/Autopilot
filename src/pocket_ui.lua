@@ -35,7 +35,7 @@ function M.new()
   return {
     screen = "root",
     gps_error = false,
-    device = "rsc2",
+    device = "rsc6",
     rpm = 0,
     elevation = 0,
     hover = false,
@@ -60,11 +60,11 @@ function M.touch(state, x, y, ctx)
       { id = "exit", x = 1, y = 6, w = 12, h = 1 },
     }, x, y)
     if id == "plus" then
-      state.rpm = math.min(32,state.rpm + 1)
+      state.rpm = math.min(32, state.rpm + 1)
       return state, protocol.validate({ type = "diagnostic_set", device = state.device, rpm = state.rpm })
     end
     if id == "minus" then
-      state.rpm = math.max(-32,state.rpm - 1)
+      state.rpm = math.max(-32, state.rpm - 1)
       return state, protocol.validate({ type = "diagnostic_set", device = state.device, rpm = state.rpm })
     end
     if id == "hover" then
@@ -76,10 +76,15 @@ function M.touch(state, x, y, ctx)
       return state, protocol.validate({ type = "diagnostic_elevation", rpm = state.elevation })
     end
     if id == "device" and state.diag_open then
-      local n=tonumber(state.device:match("%d+")) or 2
-      state.device="rsc"..(n==11 and 2 or n+1)
-      state.rpm=0
-      return state,protocol.validate({type="diagnostic_set",device=state.device,rpm=0})
+      local n = tonumber(state.device:match("%d+")) or 6
+      if n < 6 or n >= 11 then
+        n = 6
+      else
+        n = n + 1
+      end
+      state.device = "rsc" .. n
+      state.rpm = 0
+      return state, protocol.validate({ type = "diagnostic_set", device = state.device, rpm = 0 })
     end
     if id == "device" and not state.diag_open then
       state.diag_open = true
@@ -140,28 +145,31 @@ function M.touch(state, x, y, ctx)
 end
 
 function M.draw(state, terminal)
-  local w,h=terminal.getSize()
+  local w, h = terminal.getSize()
   terminal.clear()
-  local function line(y,text)
-    if y>=1 and y<=h then terminal.setCursorPos(1,y);terminal.write(text:sub(1,w)) end
+  local function line(y, text)
+    if y >= 1 and y <= h then
+      terminal.setCursorPos(1, y)
+      terminal.write(text:sub(1, w))
+    end
   end
-  if state.screen=="diagnostic" then
-    line(1,state.device.."   [+] [-]")
-    line(3,"Hover "..tostring(state.hover))
-    line(4,"Elev +1: "..tostring(state.elevation))
-    line(6,"Exit (zero)")
-    line(8,"RPM "..tostring(state.rpm).." (cap 32)")
+  if state.screen == "diagnostic" then
+    line(1, state.device .. "   [+] [-]")
+    line(3, "Hover " .. tostring(state.hover))
+    line(4, "Elev +1: " .. tostring(state.elevation))
+    line(6, "Exit (zero)")
+    line(8, "RPM " .. tostring(state.rpm) .. " (cap 32)")
   else
-    local status=state.status or {}
-    line(1,"AUTOPILOT "..(status.mode or "waiting"))
-    line(2,"Alt "..tostring(status.altitude or "?"))
-    line(3,"Speed "..tostring(status.horizontal_speed or "?"))
-    line(4,status.emergency and "EMERGENCY LATCHED" or "Tap direction; release stops")
-    line(5,state.gps_error and "GPS unavailable" or "")
-    for _,button in ipairs(ROOT) do
-      if button.y<=h and button.x<=w then
-        terminal.setCursorPos(button.x,button.y)
-        terminal.write(button.id:sub(1,math.min(button.w,w-button.x+1)))
+    local status = state.status or {}
+    line(1, "AUTOPILOT " .. (status.mode or "waiting"))
+    line(2, "Alt " .. tostring(status.altitude or "?"))
+    line(3, "Speed " .. tostring(status.horizontal_speed or "?"))
+    line(4, status.emergency and "EMERGENCY LATCHED" or "Tap direction; release stops")
+    line(5, state.gps_error and "GPS unavailable" or "")
+    for _, button in ipairs(ROOT) do
+      if button.y <= h and button.x <= w then
+        terminal.setCursorPos(button.x, button.y)
+        terminal.write(button.id:sub(1, math.min(button.w, w - button.x + 1)))
       end
     end
   end

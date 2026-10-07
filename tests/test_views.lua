@@ -46,8 +46,7 @@ A.eq(north.compass == south.compass, false, "compass follows heading")
 
 local outputs = {
   rsc = {
-    rsc2 = 0, rsc3 = 10, rsc4 = 0, rsc5 = 0,
-    rsc6 = 0, rsc7 = 0, rsc8 = 0, rsc9 = 0,
+    rsc6 = 0, rsc7 = 10, rsc8 = 0, rsc9 = 0,
     rsc10 = 30, rsc11 = 20,
   },
   relays = { relay7 = true, relay3 = false },
@@ -76,7 +75,8 @@ for _, thruster in ipairs(flight.thrusters) do
   colors[thruster.id] = thruster.color
 end
 A.eq(colors.rsc10, "green", "powered thruster")
-A.eq(colors.rsc2, "gray", "idle thruster")
+A.eq(colors.rsc6, "gray", "idle thruster")
+A.eq(colors.rsc2, nil, "bottom thruster is not on the flight page")
 
 local groups = views.engines(outputs, 256)
 local by_type = {}
@@ -85,8 +85,9 @@ for _, group in ipairs(groups) do
 end
 A.eq(by_type["X axis propellers"].devices[1].rpm, 30, "x rpm")
 A.eq(by_type["Z axis propellers"].devices[1].rpm, 20, "z rpm")
-A.eq(by_type["RCS"].devices[1].name, "RSC 2", "rcs group")
+A.eq(by_type["RCS"].devices[1].name, "RSC 6", "rcs group")
 A.eq(by_type["RCS"].devices[2].rpm, 10, "rcs rpm")
+A.eq(#by_type["RCS"].devices, 4, "side props only")
 A.eq(by_type["Main shaft"].devices[1].rpm, 256, "shaft rpm")
 local stress = views.stress(40, 100, outputs)
 A.eq(stress.consumed, 40, "su consumed")
@@ -101,8 +102,9 @@ for _, part in ipairs(diagram) do
   emergency[part.label] = part.color
 end
 A.eq(emergency["PB prop"], "red", "cut prop")
-A.eq(emergency["PB up"], "green", "powered up thruster")
-A.eq(emergency["SB up"], "gray", "idle up thruster")
+A.eq(emergency["SA side"], "green", "powered side prop")
+A.eq(emergency["PB side"], "gray", "idle side prop")
+A.eq(emergency["PB up"], nil, "bottom thruster is not on the emergency page")
 local placed = {}
 for _, part in ipairs(diagram) do
   placed[part.label] = part

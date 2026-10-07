@@ -4,6 +4,10 @@ local M = {}
 
 local GRAVITY = 10
 local STEP = 0.05
+-- Same bound the altitude hold already uses. A faster vertical stop flips the
+-- reverser or steps the elevation integer on every sign change, and Create
+-- deletes that speed controller.
+local VERTICAL_ACCEL = 4
 
 local function hover_setting()
   local hover = config.default().hover_equilibrium
@@ -27,6 +31,16 @@ local function rpm_for_thrust(thrust_accel)
     thrust_accel = 0
   end
   return config.clamp_rpm(hover_setting() * ((thrust_accel / GRAVITY) ^ (1 / 1.2)))
+end
+
+local function cap_vertical(accel)
+  if accel > VERTICAL_ACCEL then
+    return VERTICAL_ACCEL
+  end
+  if accel < 0 then
+    return 0
+  end
+  return accel
 end
 
 function M.thrust(rpm, mass)
@@ -58,10 +72,10 @@ function M.elevation_brake_rpm(vertical_speed, mass, hold_rpm)
     end
     return config.clamp_rpm(hold_rpm), false
   end
-  local stopping = stop_accel(vertical_speed)
+  local stopping = cap_vertical(stop_accel(vertical_speed))
   if vertical_speed > 0 then
-    -- Gravity already pulls the climb down at 1 g. The reverser is only the
-    -- extra deceleration past that, so the props are not asked to replace gravity.
+    -- The cap stays under 1 g, so gravity finishes the climb and the reverser
+    -- stays off. Flipping it walks the controller through zero.
     if stopping > GRAVITY then
       return rpm_for_thrust(stopping - GRAVITY), true
     end
@@ -131,6 +145,7 @@ local function finish_rpm(speed, vertical)
     end
     return rpm, false
   end
+  finish = cap_vertical(finish)
   if speed > 0 and finish > GRAVITY then
     return rpm_for_thrust(finish - GRAVITY), true
   end
@@ -147,23 +162,32 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
   if speed == nil then
     speed = 0
   end
+  if vertical and captured ~= nil then
+    local captured_accel = captured.accel or 0
+    if captured.reverser == true or captured_accel > VERTICAL_ACCEL + 1 then
+      captured = nil
+    end
+  end
   if captured ~= nil then
-    if math.abs(speed) < 0.05 then
-      return rest_rpm, nil, false
+    local grew = vertical and math.abs(speed) > math.abs(captured.speed or 0) + 0.5
+    if not grew then
+      if math.abs(speed) < 0.05 then
+        return rest_rpm, nil, false
+      end
+      local sign = 1
+      if speed < 0 then
+        sign = -1
+      end
+      if sign ~= captured.sign then
+        local rpm, reverser = finish_rpm(speed, vertical)
+        return rpm, nil, reverser
+      end
+      if math.abs(speed) <= captured.accel * STEP * (1 + 1e-4) then
+        local rpm, reverser = finish_rpm(speed, vertical)
+        return rpm, nil, reverser
+      end
+      return captured.rpm, captured, captured.reverser == true
     end
-    local sign = 1
-    if speed < 0 then
-      sign = -1
-    end
-    if sign ~= captured.sign then
-      local rpm, reverser = finish_rpm(speed, vertical)
-      return rpm, nil, reverser
-    end
-    if math.abs(speed) <= captured.accel * STEP * (1 + 1e-4) then
-      local rpm, reverser = finish_rpm(speed, vertical)
-      return rpm, nil, reverser
-    end
-    return captured.rpm, captured, captured.reverser == true
   end
   if math.abs(speed) < 0.05 then
     return rest_rpm, nil, false
@@ -179,7 +203,7 @@ function M.hold_stop(captured, speed, mass, rest_rpm, vertical)
     sign = -1
   end
   local accel = braking_rate(rpm, mass, speed, vertical, reverser)
-  return rpm, { rpm = rpm, sign = sign, accel = accel, reverser = reverser }, reverser
+  return rpm, { rpm = rpm, sign = sign, accel = accel, reverser = reverser, speed = speed }, reverser
 end
 
 function M.stopping_distance(speed, rpm, mass)

@@ -7,7 +7,7 @@ function M.step(s)
   local phase=s.phase
   local limit=s.profile=="cruise" and 7 or 50
   local settled=math.abs(s.speed or 0)<=0.1
-  if phase=="climb" and s.y>=400-0.5 then phase="track" end
+  if phase=="climb" and s.y>=400 then phase="track" end
   if phase=="track" or phase=="brake" or phase=="approach" then
     if s.dist<=10 and settled then phase="descend"
     elseif s.dist<=10 then return result("brake",0,"hold",true)

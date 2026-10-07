@@ -1,7 +1,8 @@
 local numeric = require("numeric")
+
 local M = {}
 
-local MAX_RPM = 32769 -- Match the installed controller limit; nonfinite values fail closed.
+local MAX_RPM = 32769
 
 function M.clamp_rpm(rpm)
   if not numeric.finite(rpm) then
@@ -24,7 +25,7 @@ function M.default()
     forward_accel = 50 / 15,
     side_accel = 0.5,
     yaw_damping = 2,
-    frame = { forward = {x=1,y=0,z=0}, right = {x=0,y=0,z=-1}, up = {x=0,y=1,z=0} },
+    frame = { forward = { x = 1, y = 0, z = 0 }, right = { x = 0, y = 0, z = -1 }, up = { x = 0, y = 1, z = 0 } },
     climb_rpm = 256,
     climb_rate = 4,
     altitude_deadzone = 8,
@@ -38,8 +39,13 @@ function M.default()
     hover_equilibrium = 430,
     ship_mass = 200000000,
     side_gain = 10,
-    up_gain = 5,
-    balance_rpm = 64,
+    -- +1 keeps the mixer sign. -1 flips that propeller after a measured pulse.
+    side_sign = {
+      rsc6 = 1,
+      rsc7 = 1,
+      rsc8 = 1,
+      rsc9 = 1,
+    },
     names = {
       relay2 = "redstone_relay_2",
       relay3 = "redstone_relay_3",
@@ -49,10 +55,6 @@ function M.default()
       relay8 = "redstone_relay_8",
       relay9 = "redstone_relay_9",
       relay10 = "redstone_relay_10",
-      rsc2 = "Create_RotationSpeedController_2",
-      rsc3 = "Create_RotationSpeedController_3",
-      rsc4 = "Create_RotationSpeedController_4",
-      rsc5 = "Create_RotationSpeedController_5",
       rsc6 = "Create_RotationSpeedController_6",
       rsc7 = "Create_RotationSpeedController_7",
       rsc8 = "Create_RotationSpeedController_8",
@@ -62,7 +64,7 @@ function M.default()
       speedometer = "Create_Speedometer_0",
       stressometer = "Create_Stressometer_0",
       wired_modem = "back",
-      ender_modem = "right",
+      ender_modem = "wireless",
     },
   }
 end

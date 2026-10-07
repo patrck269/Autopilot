@@ -8,6 +8,11 @@ function M.clamp(v, lo, hi)
 end
 function M.wrap(v)
   if not M.finite(v) then return 0 end
+  -- Keep an angle that is already inside the closed interval. Exact pi is a
+  -- half turn; the modulo form folds it to -pi.
+  if v >= -math.pi and v <= math.pi then
+    return v
+  end
   return (v + math.pi) % (2 * math.pi) - math.pi
 end
 function M.atan2(y, x)

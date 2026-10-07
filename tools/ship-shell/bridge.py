@@ -25,6 +25,16 @@ class MonoClock:
         time.sleep(seconds)
 
 
+class QuietHTTPServer(ThreadingHTTPServer):
+    """A client that hangs up is not a bridge failure."""
+
+    def handle_error(self, request, client_address):
+        err = sys.exception()
+        if isinstance(err, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class NullRcon:
     def send(self, command):
         return None
@@ -161,7 +171,7 @@ class Bridge:
         self.ws_sock.listen(8)
         self.ws_sock.settimeout(0.5)
         handler = self._http_handler()
-        self.http_server = ThreadingHTTPServer(("127.0.0.1", http_port), handler)
+        self.http_server = QuietHTTPServer(("127.0.0.1", http_port), handler)
         self.http_address = self.http_server.server_address
         self.running = True
         threading.Thread(target=self._ws_loop, name="ship-shell-ws", daemon=True).start()
@@ -466,6 +476,12 @@ class Bridge:
 
             def log_message(self, fmt, *args):
                 return
+
+            def handle(self):
+                try:
+                    super().handle()
+                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError):
+                    self.close_connection = True
 
             def _json(self, code, obj):
                 data = json.dumps(obj).encode("utf-8")

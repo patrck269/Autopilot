@@ -40,43 +40,17 @@ function M.elevation(vertical, hover_rpm, climb_rpm)
   return hover_rpm, false
 end
 
+-- Side units are reversible clockwork propellers. Positive vy is starboard:
+-- the port pair spins forward and the starboard pair spins in reverse.
+-- Positive yaw spins rsc6 and rsc7 forward and reverses rsc8 and rsc9.
 function M.sides(vy, yaw, gain)
-  local rsc6 = 0
-  local rsc7 = 0
-  local rsc8 = 0
-  local rsc9 = 0
-  if vy > 0 then
-    rsc6 = vy * gain
-    rsc8 = vy * gain
-  elseif vy < 0 then
-    rsc9 = -vy * gain
-    rsc7 = -vy * gain
-  end
-  if yaw > 0 then
-    rsc6 = rsc6 + yaw * gain
-    rsc7 = rsc7 + yaw * gain
-  elseif yaw < 0 then
-    rsc8 = rsc8 - yaw * gain
-    rsc9 = rsc9 - yaw * gain
-  end
+  local sway = vy * gain
+  local spin = yaw * gain
+  local rsc6 = sway + spin
+  local rsc8 = sway - spin
+  local rsc7 = -sway + spin
+  local rsc9 = -sway - spin
   return rsc6, rsc7, rsc8, rsc9
-end
-
-local function pos(value)
-  if value > 0 then
-    return value
-  end
-  return 0
-end
-
-function M.ups(pitch_err, roll_err, lift, gain)
-  local pitch = pitch_err * gain
-  local roll = roll_err * gain
-  local rsc2 = pos(pitch) + pos(roll) + lift
-  local rsc3 = pos(pitch) + pos(-roll) + lift
-  local rsc4 = pos(-pitch) + pos(roll) + lift
-  local rsc5 = pos(-pitch) + pos(-roll) + lift
-  return rsc2, rsc3, rsc4, rsc5
 end
 
 return M

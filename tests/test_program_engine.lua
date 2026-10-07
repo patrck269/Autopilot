@@ -7,10 +7,10 @@ local old_clock,old_timer,old_pull=os.clock,os.startTimer,os.pullEvent
 local now,events,hardware,broadcasts=0,{}, {},{}
 fs={getDir=function() return "" end,combine=function(a,b) return b end,open=function() return nil end}
 shell={getRunningProgram=function() return "startup.lua" end}
-colors={green=1,gray=2,red=3,black=4,white=5,blue=6,lime=7,lightBlue=8}
-term={setBackgroundColor=function() end,setTextColor=function() end,clear=function() end,setCursorPos=function() end,write=function() end}
+colors={green=1,gray=2,red=3,black=4,white=5,blue=6,lime=7,lightBlue=8,yellow=9,orange=10,lightGray=11}
+term={setBackgroundColor=function() end,setTextColor=function() end,clear=function() end,setCursorPos=function() end,write=function() end,getSize=function() return 40,20 end}
 peripheral={
-  isPresent=function() return true end,getType=function() return "modem" end,find=function() return nil end,
+  isPresent=function() return true end,getType=function() return "modem" end,find=function() return nil end,getNames=function() return {} end,
   wrap=function(network)
     local key
     for name,value in pairs(cfg.names) do if value==network then key=name end end
@@ -44,7 +44,7 @@ local function run(commands)
   hardware={};broadcasts={};events={};timer=0;now=0
   for _,command in ipairs(commands) do events[#events+1]={"rednet_message",12,command} end
   events[#events+1]={"timer",1}
-  local ok,err=pcall(dofile,"programs/engine.lua")
+  local ok,err=pcall(dofile,"programs/command.lua")
   A.eq(ok,false,"test stops event loop")
   if not tostring(err):find("test end",1,true) then error(err) end
   A.eq(#broadcasts,1,"one flight sample")
@@ -62,4 +62,4 @@ for name,value in pairs(saved) do _G[name]=value end
 -- Explicit nil restoration as pairs omits absent globals.
 for _,name in ipairs({"fs","shell","rednet","peripheral","ship","parallel","term","colors"}) do _G[name]=saved[name] end
 os.clock,os.startTimer,os.pullEvent=old_clock,old_timer,old_pull
-print("engine program queue and fatal-exit cleanup passed")
+print("command program queue and fatal-exit cleanup passed")
