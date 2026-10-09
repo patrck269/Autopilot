@@ -1,7 +1,6 @@
 local config = require("config")
 local manual = require("manual")
 local speed = require("speed")
-local hover = require("hover")
 local auto = require("auto")
 local outage = require("outage")
 local mix = require("mix")
@@ -371,13 +370,7 @@ local function hold_safe_accel(y, vy, target, requested, speed_cap)
 end
 
 local function wrap(angle)
-  while angle > math.pi do
-    angle = angle - math.pi * 2
-  end
-  while angle < -math.pi do
-    angle = angle + math.pi * 2
-  end
-  return angle
+  return numeric.wrap(angle)
 end
 
 function M.new_state()
@@ -1099,7 +1092,7 @@ function M.tick(state, input)
   if ship.side_speed ~= nil and state.mode == "auto" and state.waypoint_x ~= nil
       and not (state.mode == "manual" and state.stick.y ~= 0) then
     local accel = control.accel(vy, side_speed, ship.dt, cfg.side_accel or 0.5, cfg.velocity_response or 1)
-    local shared = share_rpm(control.prop_rpm(accel, cfg.hover_equilibrium), #SIDE_NAMES)
+    local shared = control.rcs_rpm(accel, cfg.ship_mass, #SIDE_NAMES)
     rsc6, rsc7, rsc8, rsc9 = mix.sides(shared, 0, 1)
   else
     rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, 0, cfg.side_gain)
@@ -1145,21 +1138,19 @@ function M.tick(state, input)
   end
   if not (state.mode == "manual" and state.stick.y ~= 0) then
     local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
-    local spin = manual.bearing_rpm(yaw_err, cfg.ship_mass)
+    local spin = manual.yaw_rpm(yaw_err, ship.yaw_rate, cfg.ship_mass, cfg.yaw_damping)
     if spin ~= 0 then
-      local direction = 1
-      if yaw_err < 0 then
-        direction = -1
-      end
-      local y6, y7, y8, y9 = mix.sides(0, direction * spin, 1)
-      outputs.rsc.rsc6 = y6
-      outputs.rsc.rsc7 = y7
-      outputs.rsc.rsc8 = y8
-      outputs.rsc.rsc9 = y9
+      local y6, y7, y8, y9 = mix.sides(0, spin, 1)
+      outputs.rsc.rsc6 = mix.add_rpm(outputs.rsc.rsc6, y6)
+      outputs.rsc.rsc7 = mix.add_rpm(outputs.rsc.rsc7, y7)
+      outputs.rsc.rsc8 = mix.add_rpm(outputs.rsc.rsc8, y8)
+      outputs.rsc.rsc9 = mix.add_rpm(outputs.rsc.rsc9, y9)
     end
   end
   apply_side_signs(outputs, cfg)
-  outputs.relays.relay6 = hover.use_reverser(kind == "corner" or kind == "side" or elev_reverse)
+  -- A failed corner is handled by cutoffs. Reversing the surviving props
+  -- would turn the remaining upward lift into additional downward force.
+  outputs.relays.relay6 = elev_reverse == true
   stress.limit_manual(outputs, input.su, input.su_capacity, state.modeled_su)
   state.modeled_su = stress.consumed(outputs)
 

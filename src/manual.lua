@@ -52,6 +52,14 @@ function M.bearing_rpm(error_rad, mass)
   return M.rcs_rpm(portion, mass)
 end
 
+function M.yaw_rpm(error_rad, yaw_rate, mass, damping)
+  local portion = 0
+  if math.abs(error_rad) >= 0.02 then portion = error_rad / math.pi end
+  portion = math.max(-1, math.min(1, portion - (yaw_rate or 0) * (damping or 2)))
+  local rpm = M.rcs_rpm(portion, mass)
+  return portion < 0 and -rpm or rpm
+end
+
 function M.rcs_rpm(stick, mass)
   if stick == 0 then
     return 0

@@ -46,6 +46,7 @@ end
 function M.budget(measured, capacity, previous)
   local room = M.USABLE
   if type(capacity) ~= "number" or capacity <= 0 then
+    if capacity == 0 then return 0 end
     return room
   end
   local external = 0
@@ -67,10 +68,13 @@ function M.budget(measured, capacity, previous)
 end
 
 function M.limit_manual(outputs, measured, capacity, previous)
+  return M.limit_budget(outputs, M.budget(measured, capacity, previous))
+end
+
+function M.limit_budget(outputs, room)
   if outputs == nil or outputs.rsc == nil then
     return outputs
   end
-  local room = M.budget(measured, capacity, previous)
   local rsc = outputs.rsc
   local elev_su = elevation_su(rsc)
   local rest_su = other_su(rsc)

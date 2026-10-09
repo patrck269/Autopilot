@@ -24,7 +24,10 @@ end
 
 local function apply(action)
   if action.write_zero then
-    runtime.apply(mix.zero(), devices)
+    -- runtime attempts every device before reporting failures. Keep the
+    -- watchdog alive and broadcasting its latch so later ticks can retry.
+    local ok, failure = pcall(runtime.apply, mix.zero(), devices)
+    if not ok then print("Watchdog stop failed: " .. tostring(failure)) end
   end
   if action.broadcast ~= nil then
     rednet.broadcast({ type = "watchdog", latched = action.broadcast })

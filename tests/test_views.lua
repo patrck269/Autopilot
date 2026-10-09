@@ -92,6 +92,9 @@ A.eq(by_type["Main shaft"].devices[1].rpm, 256, "shaft rpm")
 local stress = views.stress(40, 100, outputs)
 A.eq(stress.consumed, 40, "su consumed")
 A.eq(stress.remaining, 60, "su remaining")
+A.near(stress.x_axis_propellers,40*120/520,1e-8,"forward shaft share uses bearing stress impact")
+A.near(stress.z_axis_propellers,40*320/520,1e-8,"elevation shaft share includes four bearings")
+A.near(stress.rcs,40*80/520,1e-8,"side shaft share uses controller stress impact")
 if not (stress.x_axis_propellers > 0 and stress.z_axis_propellers > 0 and stress.rcs > 0) then
   error("expected SU on all three types")
 end

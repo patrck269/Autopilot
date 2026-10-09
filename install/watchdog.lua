@@ -7,6 +7,7 @@ local files = {
   { "src/mix.lua", "src/mix.lua" },
   { "src/speed.lua", "src/speed.lua" },
   { "src/runtime.lua", "src/runtime.lua" },
+  { "src/stress.lua", "src/stress.lua" },
   { "src/link.lua", "src/link.lua" },
   { "src/shell.lua", "src/shell.lua" },
   { "src/watchdog.lua", "src/watchdog.lua" },

@@ -16,6 +16,7 @@ local shell_mod = require("shell")
 local link_mod = require("link")
 local frame = require("frame")
 local mix = require("mix")
+local stress_mod = require("stress")
 
 local cfg = config.default()
 local state = engine_tick.new_state()
@@ -674,7 +675,7 @@ local function flight_loop()
     elseif event == "timer" and a == tick_timer then
       local sample = collect_ship()
       local consumed = 0
-      local capacity = 0
+      local capacity = nil
       if stress_gauge ~= nil and stress_gauge.getStress ~= nil then
         consumed = stress_gauge.getStress()
       end
@@ -709,13 +710,14 @@ local function flight_loop()
         current_elevation_rpm = elevation_rpm,
       })
       session.state = state
-      local stress = views.stress(consumed, capacity, outputs)
+      outputs = runtime.apply(outputs, devices, {measured=consumed, capacity=capacity})
+      state.modeled_su = stress_mod.consumed(outputs)
+      local stress = views.stress(consumed, capacity or 0, outputs)
       status.su = stress.consumed
       status.su_remaining = stress.remaining
       status.su_x_axis_propellers = stress.x_axis_propellers
       status.su_z_axis_propellers = stress.z_axis_propellers
       status.su_rcs = stress.rcs
-      runtime.apply(outputs, devices)
       status.speed = status.horizontal_speed
       status.type = "status"
       rednet.broadcast(status)

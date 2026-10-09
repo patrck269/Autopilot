@@ -1,3 +1,4 @@
+local stress_model = require("stress")
 local M = {}
 
 local function hypot(a, b)
@@ -137,11 +138,11 @@ local EMERGENCY_PARTS = {
 
 function M.stress(consumed, capacity, outputs)
   local rsc = outputs.rsc or {}
-  local x = math.abs(rsc.rsc10 or 0)
-  local z = math.abs(rsc.rsc11 or 0)
+  local x = math.abs(rsc.rsc10 or 0) * stress_model.X_IMPACT * stress_model.X_PROPS
+  local z = math.abs(rsc.rsc11 or 0) * stress_model.ELEVATION_IMPACT * stress_model.ELEVATION_PROPS
   local rcs = 0
   for _, name in ipairs({ "rsc6", "rsc7", "rsc8", "rsc9" }) do
-    rcs = rcs + math.abs(rsc[name] or 0)
+    rcs = rcs + math.abs(rsc[name] or 0) * stress_model.RCS_IMPACT
   end
   local total = x + z + rcs
   local function share(part)

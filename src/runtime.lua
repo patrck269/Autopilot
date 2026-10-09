@@ -1,4 +1,5 @@
 local config = require("config")
+local stress = require("stress")
 local unpack = unpack or table.unpack
 
 local SIDES = { "bottom", "top", "front", "back", "left", "right" }
@@ -19,6 +20,14 @@ local hold_for = {}
 local held_since = {}
 local arrived_at = {}
 local chase_left = {}
+
+local function forget(name)
+  last_rpm[name] = nil
+  hold_for[name] = nil
+  held_since[name] = nil
+  arrived_at[name] = nil
+  chase_left[name] = nil
+end
 
 local function write_all(device, value)
   for _, side in ipairs(SIDES) do
@@ -93,48 +102,88 @@ local function signs_differ(previous, wanted)
   return previous ~= 0 and wanted ~= 0 and ((previous > 0) ~= (wanted > 0))
 end
 
-local function apply_targets(outputs, devices)
+local function apply_targets(outputs, devices, options)
+  local applied = {rsc={}, relays=outputs.relays, diag_relay=outputs.diag_relay}
+  local previous_targets = {}
   for name, rpm in pairs(outputs.rsc) do
     local device = devices[name]
     if device ~= nil and device.setTargetSpeed ~= nil then
       local wanted = integer_rpm(rpm)
       local previous = last_rpm[name]
-      if previous == nil and device.getTargetSpeed ~= nil then
+      if device.getTargetSpeed ~= nil then
         local current = device.getTargetSpeed()
         if type(current) == "number" then
-          previous = integer_rpm(current)
-          last_rpm[name] = previous
+          current = integer_rpm(current)
+          if current ~= previous then
+            forget(name)
+            previous = current
+            last_rpm[name] = current
+          end
         end
       end
       local hold = hold_for[name] or 0
       local sending = wanted
-      local write = false
       if previous == nil then
         sending = limit_step(name, previous, sending)
-        remember(name, sending, true)
-        write = true
       elseif wanted == previous then
         if hold > 0 then
           hold_for[name] = hold - 1
         end
       elseif signs_differ(previous, wanted) then
         sending = 0
-        remember(name, sending, true)
-        write = true
       elseif wanted == 0 or previous == 0 or hold_open(name, hold)
           or (arrived_at[name] == false and math.abs(wanted - previous) < 100) then
         sending = limit_step(name, previous, wanted)
-        if sending ~= previous then
-          remember(name, sending, sending == wanted)
-          write = true
-        end
       else
+        sending = previous
         if hold > 0 then
           hold_for[name] = hold - 1
         end
       end
-      if write then
-        device.setTargetSpeed(sending)
+      applied.rsc[name] = sending
+      previous_targets[name] = previous
+    else
+      forget(name)
+    end
+  end
+
+  if options then
+    -- Budget the integers that will actually be held together, rather than
+    -- the requested outputs that the hold or elevation step may postpone.
+    local room = options.budget or stress.budget(options.measured, options.capacity,
+      stress.consumed({rsc=previous_targets}))
+    stress.limit_budget(applied, room)
+    for name, rpm in pairs(applied.rsc) do
+      rpm = integer_rpm(rpm)
+      local previous = previous_targets[name]
+      if name == ELEVATION and previous ~= nil and rpm ~= 0
+          and math.abs(rpm - previous) >= 100 then
+        -- An abrupt loss of capacity cannot be solved by holding an unsafe
+        -- elevation speed. Zero is the actuator's permitted immediate stop.
+        rpm = 0
+      end
+      applied.rsc[name] = rpm
+    end
+  end
+  local writes = {}
+  for name, rpm in pairs(applied.rsc) do
+    if rpm ~= previous_targets[name] then writes[#writes+1] = name end
+  end
+  table.sort(writes, function(a,b)
+    local a_reduces = math.abs(applied.rsc[a]) <= math.abs(previous_targets[a] or 0)
+    local b_reduces = math.abs(applied.rsc[b]) <= math.abs(previous_targets[b] or 0)
+    if a_reduces ~= b_reduces then return a_reduces end
+    return a < b
+  end)
+  local reduction_failed = false
+  for _, name in ipairs(writes) do
+    local rpm, previous = applied.rsc[name], previous_targets[name]
+    local increases = math.abs(rpm) > math.abs(previous or 0)
+    if not (increases and reduction_failed) then
+      if devices[name].setTargetSpeed(rpm) ~= false then
+        remember(name, rpm, rpm == integer_rpm(outputs.rsc[name]))
+      elseif not increases then
+        reduction_failed = true
       end
     end
   end
@@ -166,9 +215,10 @@ local function apply_targets(outputs, devices)
       end
     end
   end
+  return applied
 end
 
-function M.apply(outputs, devices)
+function M.apply(outputs, devices, options)
   local failures = {}
   local guarded = {}
   for name, device in pairs(devices) do
@@ -182,18 +232,24 @@ function M.apply(outputs, devices)
         return function(...)
           local results = { pcall(fn, ...) }
           if not results[1] then
+            if method == "setTargetSpeed" then
+              forget(device_name)
+            end
             failures[#failures + 1] = device_name .. ": " .. tostring(results[2])
+            if method == "setTargetSpeed" then return false end
             return nil
           end
+          if method == "setTargetSpeed" then return true end
           return unpack(results, 2)
         end
       end,
     })
   end
-  apply_targets(outputs, guarded)
+  local applied = apply_targets(outputs, guarded, options)
   if #failures > 0 then
     error(table.concat(failures, "; "), 0)
   end
+  return applied
 end
 
 return M

@@ -53,4 +53,14 @@ function M.sides(vy, yaw, gain)
   return rsc6, rsc7, rsc8, rsc9
 end
 
+-- Thrust is proportional to signed RPM^1.2. Add forces, rather than RPM,
+-- so bearing correction preserves the commanded translation and brake.
+function M.add_rpm(a, b)
+  local function force(rpm)
+    return (rpm < 0 and -1 or 1) * math.abs(rpm)^1.2
+  end
+  local sum = force(a) + force(b)
+  return (sum < 0 and -1 or 1) * math.abs(sum)^(1 / 1.2)
+end
+
 return M

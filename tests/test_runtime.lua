@@ -123,3 +123,26 @@ for i = 1, #moving.calls do
   last_written = number
 end
 print("elevation writes " .. tostring(#moving.calls))
+
+runtime = reload()
+local attempts = 0
+local unreliable = {setTargetSpeed = function()
+  attempts = attempts + 1
+  if attempts == 1 then error("temporary detach") end
+end}
+local zero = {rsc = {rsc10 = 0}, relays = {}}
+A.eq(pcall(runtime.apply, zero, {rsc10 = unreliable}), false, "failed stop reported")
+runtime.apply(zero, {rsc10 = unreliable})
+A.eq(attempts, 2, "failed zero write is retried")
+
+runtime = reload()
+local actual, writes = 100, 0
+local changed = {
+  getTargetSpeed = function() return actual end,
+  setTargetSpeed = function(rpm) actual = rpm; writes = writes + 1 end,
+}
+runtime.apply(zero, {rsc10 = changed})
+actual = 100 -- An independent controller or replacement device changed it.
+runtime.apply(zero, {rsc10 = changed})
+A.eq(actual, 0, "external target change cannot bypass zero")
+A.eq(writes, 2, "external target change is corrected")

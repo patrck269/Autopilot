@@ -99,7 +99,10 @@ for _,heading in ipairs({0,math.pi/2,math.pi,-math.pi/2}) do
     x=x+vx*.05;z=z+vz*.05
     yaw_rate=yaw_rate+(front-rear)*8/(cfg.ship_mass*400)*.05
     heading=heading+yaw_rate*.05
-    if math.sqrt(vx*vx+vz*vz)>50+.1 then error("auto exceeds measured cap") end
+    if math.sqrt(vx*vx+vz*vz)>50+.1 then
+      error(string.format("auto exceeds measured cap: speed %.3f, step %d, heading %.3f, distance %.3f",
+        math.sqrt(vx*vx+vz*vz), i, heading, math.sqrt((x-120)^2+(z-80)^2)))
+    end
     if state.phase=="descend" and math.sqrt(vx*vx+vz*vz)<.11 then arrived=true;break end
   end
   if not arrived then error("navigation failed from heading "..heading.." distance "..math.sqrt((x-120)^2+(z-80)^2)) end
