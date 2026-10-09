@@ -18,14 +18,14 @@ M.hold_seconds = 1.5
 local last_rpm = {}
 local hold_for = {}
 local held_since = {}
-local arrived_at = {}
 local chase_left = {}
+local flicker = {}
+local flicker_clock = {}
 
 local function forget(name)
   last_rpm[name] = nil
   hold_for[name] = nil
   held_since[name] = nil
-  arrived_at[name] = nil
   chase_left[name] = nil
 end
 
@@ -43,25 +43,30 @@ local function integer_rpm(rpm)
   return -math.floor(-clamped)
 end
 
--- After the asked-for integer is held, a few partial steps may follow it at
--- once so a stop can reach the next integer. Further partial steps are one
--- per four applies, which keeps a 400-apply window under the flicker score.
--- The step that lands on the asked-for integer is not delayed.
+-- A powered target change stops and restarts the network: +10 flicker,
+-- decaying by one per game tick. Short partial-step bursts spend a bounded
+-- allowance; later changes wait for game ticks to replenish it.
 local APPROACH_HOLD = 3
 local BURST = 3
+local FLICKER_LIMIT = 80 -- Reserve room for an immediate stop and propagation.
+
+local function flicker_score(name)
+  local now = os.clock() -- ComputerCraft game time, including server tick lag.
+  local clock = flicker_clock[name] or now
+  local ticks = math.max(0, math.floor((now - clock) / 0.05 + 1e-6))
+  flicker[name] = math.max(0, (flicker[name] or 0) - ticks)
+  flicker_clock[name] = clock + ticks * 0.05
+  return flicker[name]
+end
 
 local function remember(name, rpm, arrived)
   last_rpm[name] = rpm
-  arrived_at[name] = arrived
   held_since[name] = os.clock()
   if arrived then
     hold_for[name] = M.speed_hold
     chase_left[name] = BURST
-    return
-  end
-  local left = chase_left[name] or 0
-  if left > 1 then
-    chase_left[name] = left - 1
+  elseif (chase_left[name] or 0) > 1 then
+    chase_left[name] = chase_left[name] - 1
     hold_for[name] = 0
   else
     chase_left[name] = 0
@@ -77,10 +82,8 @@ local function hold_open(name, hold)
   return started ~= nil and os.clock() - started >= M.hold_seconds
 end
 
--- A step of about 100 RPM detaches the elevation network hard enough to
--- break the block. The first target, when the controller has none yet, and
--- an immediate zero may be any size. A known target is approached in
--- smaller steps. Only the integer that was asked for is held.
+-- Retain the elevation slew limit for flight behavior. Create has no
+-- 100-RPM destruction threshold; every changed integer costs flicker.
 local ELEVATION = "rsc11"
 local ELEVATION_STEP = 99
 
@@ -131,8 +134,7 @@ local function apply_targets(outputs, devices, options)
         end
       elseif signs_differ(previous, wanted) then
         sending = 0
-      elseif wanted == 0 or previous == 0 or hold_open(name, hold)
-          or (arrived_at[name] == false and math.abs(wanted - previous) < 100) then
+      elseif wanted == 0 or previous == 0 or hold_open(name, hold) then
         sending = limit_step(name, previous, wanted)
       else
         sending = previous
@@ -147,11 +149,13 @@ local function apply_targets(outputs, devices, options)
     end
   end
 
+  local budget_room
   if options then
     -- Budget the integers that will actually be held together, rather than
     -- the requested outputs that the hold or elevation step may postpone.
     local room = options.budget or stress.budget(options.measured, options.capacity,
       stress.consumed({rsc=previous_targets}))
+    budget_room = room
     stress.limit_budget(applied, room)
     for name, rpm in pairs(applied.rsc) do
       rpm = integer_rpm(rpm)
@@ -163,6 +167,18 @@ local function apply_targets(outputs, devices, options)
         rpm = 0
       end
       applied.rsc[name] = rpm
+    end
+  end
+  -- Budget shedding, zero restarts, and reversals also pass this gate. A
+  -- reduction that cannot wait stops immediately; an increase waits. This
+  -- preserves the stress budget and leaves emergency zero unconditional.
+  for name, rpm in pairs(applied.rsc) do
+    local previous = previous_targets[name]
+    if rpm ~= previous and rpm ~= 0 and flicker_score(name) + 10 > FLICKER_LIMIT then
+      applied.rsc[name] = previous or 0
+      if budget_room ~= nil and stress.consumed(applied) > budget_room then
+        applied.rsc[name] = 0
+      end
     end
   end
   local writes = {}
@@ -180,6 +196,9 @@ local function apply_targets(outputs, devices, options)
     local rpm, previous = applied.rsc[name], previous_targets[name]
     local increases = math.abs(rpm) > math.abs(previous or 0)
     if not (increases and reduction_failed) then
+      -- Charge attempts too: a peripheral can fail after changing the block.
+      -- Cache invalidation must not erase the protection before a retry.
+      flicker[name] = flicker_score(name) + (rpm == 0 and 5 or 10)
       if devices[name].setTargetSpeed(rpm) ~= false then
         remember(name, rpm, rpm == integer_rpm(outputs.rsc[name]))
       elseif not increases then

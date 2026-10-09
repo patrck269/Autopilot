@@ -2031,8 +2031,8 @@ A.eq(state.waypoint_x, 400, "arrival keeps the waypoint")
 
 -- Closed loop through the shipped tick and the shipped speed hold. The plant
 -- integrates the RPM apply actually sent, so a held integer cannot be refreshed
--- every tick. os.clock is pinned so the 1.5s limit does not depend on wall time;
--- the hold still releases by its apply countdown.
+-- every tick. Advance game time with the plant so Create flicker decays
+-- by one per simulated Minecraft tick.
 local function held_altitude(start_y, start_vy, target, label)
   package.loaded.runtime = nil
   local runtime = require("runtime")
@@ -2067,6 +2067,7 @@ local function held_altitude(start_y, start_vy, target, label)
   local quiet_best = 0
   local steps = 5000
   for i = 1, steps do
+    pinned = pinned + 0.05
     local command = nil
     if i == 1 then
       command = { type = "set_altitude", y = target }
@@ -2079,7 +2080,7 @@ local function held_altitude(start_y, start_vy, target, label)
       ready = true,
       stick_fresh = false,
       config = cfg,
-      current_elevation_rpm = cfg.hover_equilibrium,
+      current_elevation_rpm = sent,
     })
     runtime.apply(stepped, devices)
     if ship.y > target and sent <= 0 then

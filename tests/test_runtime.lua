@@ -1,6 +1,8 @@
 package.path = "src/?.lua;" .. package.path
 local A = dofile("tests/assert.lua")
 local runtime = require("runtime")
+local real_clock, now = os.clock, 0
+os.clock = function() return now end
 
 local function recorder()
   local calls = {}
@@ -50,6 +52,7 @@ A.eq(high_z.calls[1], "rpm " .. tostring(-limit), "negative target is clamped")
 runtime = reload()
 local held = recorder()
 local function push(rpm)
+  now = now + 0.05
   local before = #held.calls
   runtime.apply({ rsc = { rsc11 = rpm }, relays = {} }, { rsc11 = held })
   if #held.calls == before then
@@ -106,6 +109,7 @@ A.eq(fresh_high.calls[1], "rpm " .. tostring(limit), "a first elevation write ma
 runtime = reload()
 local moving = recorder()
 for i = 1, 400 do
+  now = now + 0.05
   runtime.apply({ rsc = { rsc11 = i * 20 }, relays = {} }, { rsc11 = moving })
 end
 if #moving.calls >= 128 then
@@ -146,3 +150,5 @@ actual = 100 -- An independent controller or replacement device changed it.
 runtime.apply(zero, {rsc10 = changed})
 A.eq(actual, 0, "external target change cannot bypass zero")
 A.eq(writes, 2, "external target change is corrected")
+
+os.clock = real_clock
