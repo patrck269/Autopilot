@@ -575,8 +575,8 @@ end
 
 local function side_accel(outputs, mass)
   local rsc = outputs.rsc
-  return signed_accel(rsc.rsc14 or 0, mass) + signed_accel(rsc.rsc12 or 0, mass)
-    - signed_accel(rsc.rsc13 or 0, mass) - signed_accel(rsc.rsc15 or 0, mass)
+  return signed_accel(rsc.rsc14 or 0, mass) + signed_accel(rsc.rsc15 or 0, mass)
+    - signed_accel(rsc.rsc13 or 0, mass) - signed_accel(rsc.rsc12 or 0, mass)
 end
 
 local function coast(pos, vel, accel, dt)
@@ -835,11 +835,11 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if not ((outputs.rsc.rsc14 or 0) > 0 and (outputs.rsc.rsc12 or 0) > 0) then
-  error("starboard stick did not pull controllers 14 and 12")
+if not ((outputs.rsc.rsc14 or 0) > 0 and (outputs.rsc.rsc15 or 0) > 0) then
+  error("starboard stick did not pull bow starboard and stern port")
 end
-if (outputs.rsc.rsc13 or 0) > 0 or (outputs.rsc.rsc15 or 0) > 0 then
-  error("starboard stick wrote a port pull")
+if (outputs.rsc.rsc13 or 0) > 0 or (outputs.rsc.rsc12 or 0) > 0 then
+  error("starboard stick pulled the portward pair")
 end
 A.eq(state.mode, "semi", "side stick stays semi")
 
@@ -949,14 +949,14 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc15 or 0) <= 0 then
-  error("bearing did not pull bow starboard and stern port")
+if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc12 or 0) <= 0 then
+  error("bearing did not pull bow starboard and stern starboard")
 end
 if outputs.rsc.rsc16 < 400 then
   error("bearing command cut the elevation props: " .. tostring(outputs.rsc.rsc16))
 end
-local yaw_force = signed_accel(outputs.rsc.rsc14, cfg.ship_mass) + signed_accel(outputs.rsc.rsc15, cfg.ship_mass)
-  - signed_accel(outputs.rsc.rsc13 or 0, cfg.ship_mass) - signed_accel(outputs.rsc.rsc12 or 0, cfg.ship_mass)
+local yaw_force = signed_accel(outputs.rsc.rsc14, cfg.ship_mass) + signed_accel(outputs.rsc.rsc12, cfg.ship_mass)
+  - signed_accel(outputs.rsc.rsc13 or 0, cfg.ship_mass) - signed_accel(outputs.rsc.rsc15 or 0, cfg.ship_mass)
 local alpha = yaw_force * 8 / 400
 local turned = 0.5 * alpha * 0.05 * 0.05
 if turned <= 0 then
@@ -997,8 +997,8 @@ local function assert_bearing_rcs(label, prior)
     config = cfg,
     current_elevation_rpm = 430,
   })
-  if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc15 or 0) <= 0 then
-    error(label .. " bearing did not pull bow starboard and stern port")
+  if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc12 or 0) <= 0 then
+    error(label .. " bearing did not pull bow starboard and stern starboard")
   end
 end
 
@@ -1048,13 +1048,13 @@ local function hover_brake(heading)
 end
 local exact_brake = hover_brake(0)
 local near_brake = hover_brake(0.01)
-if (exact_brake.rsc.rsc13 or 0) <= 0 or (exact_brake.rsc.rsc15 or 0) <= 0 then
-  error("exact heading did not pull both port controllers")
+if (exact_brake.rsc.rsc13 or 0) <= 0 or (exact_brake.rsc.rsc12 or 0) <= 0 then
+  error("exact heading did not pull the ship to port")
 end
-if (exact_brake.rsc.rsc14 or 0) > 0 or (exact_brake.rsc.rsc12 or 0) > 0 then
-  error("side brake pulled starboard")
+if (exact_brake.rsc.rsc14 or 0) > 0 or (exact_brake.rsc.rsc15 or 0) > 0 then
+  error("side brake pulled the ship to starboard")
 end
-if (near_brake.rsc.rsc13 or 0) <= 0 or (near_brake.rsc.rsc15 or 0) <= 0 then
+if (near_brake.rsc.rsc13 or 0) <= 0 or (near_brake.rsc.rsc12 or 0) <= 0 then
   error("a tiny heading error dropped the port brake")
 end
 

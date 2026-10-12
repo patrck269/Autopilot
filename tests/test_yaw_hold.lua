@@ -29,7 +29,7 @@ local ok, failure = pcall(function()
         config=cfg,ready=true,su=0,stick_fresh=true,current_elevation_rpm=430,
       })
       runtime.apply(outputs,devices,{budget=require("stress").USABLE})
-      local torque = force(actual.rsc14)+force(actual.rsc15)-force(actual.rsc13)-force(actual.rsc12)
+      local torque = force(actual.rsc14)+force(actual.rsc12)-force(actual.rsc13)-force(actual.rsc15)
       rate = rate + torque*8/(cfg.ship_mass*400)*.05
       heading = heading + rate*.05
     end

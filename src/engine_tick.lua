@@ -1336,6 +1336,7 @@ function M.tick(state, input)
       feed
     )
     local eq = prop_equilibrium()
+    -- Positive RPM on the rear thrusters pushes the ship forward.
     rsc17 = control.prop_rpm(accel, eq) * pid.thrust_scale(ship.y)
     relay2 = speed.relay2_level(rsc17, eq)
   end
