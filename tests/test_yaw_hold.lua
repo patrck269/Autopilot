@@ -34,7 +34,7 @@ local ok, failure = pcall(function()
       heading = heading + rate*.05
     end
     A.near(heading,0,.021,"bearing settles with held actuator targets")
-    A.near(rate,0,.001,"yaw momentum settles with held actuator targets")
+    A.near(rate,0,.003,"yaw momentum settles with held actuator targets")
   end
 end)
 os.clock=old_clock

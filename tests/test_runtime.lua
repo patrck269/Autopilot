@@ -83,7 +83,6 @@ if changes > 8 then
   error("z target changed too often: " .. tostring(changes))
 end
 A.eq(push(0), "rpm 0", "zero cuts z immediately")
-A.eq(push(400), "rpm 99", "leaving zero steps by less than 100")
 local function until_change(from, rpm)
   local sent = from
   local waits = 0
@@ -96,6 +95,7 @@ local function until_change(from, rpm)
   end
   return sent
 end
+A.eq(until_change("rpm 0", 400), "rpm 99", "leaving zero steps by less than 100")
 A.eq(until_change("rpm 99", -400), "rpm 0", "a sign change stops before the reverse")
 A.eq(until_change("rpm 0", -400), "rpm -99", "the reversed target steps by less than 100")
 A.eq(until_change("rpm -99", 90000), "rpm 0", "an opposite over-max command stops first")
@@ -150,6 +150,25 @@ actual = 100 -- An independent controller or replacement device changed it.
 runtime.apply(zero, {rsc17 = changed})
 A.eq(actual, 0, "external target change cannot bypass zero")
 A.eq(writes, 2, "external target change is corrected")
+
+runtime = reload()
+local rcs_writes = 0
+local rcs = {
+  getTargetSpeed = function() return 0 end,
+  setTargetSpeed = function() rcs_writes = rcs_writes + 1 end,
+}
+for i = 1, 40 do
+  now = now + 0.05
+  local rpm = 8000
+  if i % 2 == 0 then
+    rpm = -8000
+  end
+  runtime.apply({ rsc = { rsc14 = rpm }, relays = {} }, { rsc14 = rcs })
+end
+if rcs_writes > 2 then
+  error("alternating rcs target rewrote the controller " .. tostring(rcs_writes) .. " times in 2 seconds")
+end
+print("alternating rcs writes " .. tostring(rcs_writes))
 
 runtime = reload()
 local stale_writes = 0

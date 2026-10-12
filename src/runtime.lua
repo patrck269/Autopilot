@@ -11,9 +11,12 @@ local M = {}
 -- controller breaks once its flicker score passes 128. Hold the last integer
 -- across this many applies, and never longer than hold_seconds, so a slow
 -- tick cannot freeze a stale climb RPM. Zero still goes out at once. A sign
--- change stops at zero before it reverses.
+-- change waits out the hold, stops at zero, and waits again before it reverses.
+-- The four RCS controllers hold longer: a heading wobble was reversing them
+-- every tick and the zero writes are not covered by the flicker ceiling.
 M.speed_hold = 30
 M.hold_seconds = 1.5
+M.rcs_hold_seconds = 4
 
 local last_rpm = {}
 local hold_for = {}
@@ -89,19 +92,39 @@ local function flicker_score(name)
   return flicker[name]
 end
 
+local function is_rcs(name)
+  return name == "rsc12" or name == "rsc13" or name == "rsc14" or name == "rsc15"
+end
+
 local function remember(name, rpm, _arrived)
   last_rpm[name] = rpm
   held_since[name] = os.clock()
-  hold_for[name] = M.speed_hold
+  if is_rcs(name) then
+    hold_for[name] = math.ceil(M.rcs_hold_seconds / 0.05)
+  else
+    hold_for[name] = M.speed_hold
+  end
   chase_left[name] = 0
 end
 
 local function hold_open(name, hold)
-  if hold <= 0 then
+  local started = held_since[name]
+  if started == nil then
     return true
   end
-  local started = held_since[name]
-  return started ~= nil and os.clock() - started >= M.hold_seconds
+  local wait = M.hold_seconds
+  if is_rcs(name) then
+    wait = M.rcs_hold_seconds
+  end
+  if os.clock() - started >= wait then
+    return true
+  end
+  -- Elevation can also open by apply count. RCS waits out the clock only,
+  -- so a fast event loop cannot reverse a thruster early.
+  if is_rcs(name) then
+    return false
+  end
+  return hold <= 0
 end
 
 -- Retain the elevation slew limit for flight behavior. Create has no
@@ -146,7 +169,8 @@ local function apply_targets(outputs, devices, options)
           if current ~= seen_speed[name] then
             seen_speed[name] = current
             if current ~= previous then
-              forget(name)
+              -- Keep the hold clock. Adopting a lagging read must not open
+              -- another target write on this same tick.
               previous = current
               last_rpm[name] = current
             end
@@ -162,8 +186,15 @@ local function apply_targets(outputs, devices, options)
           hold_for[name] = hold - 1
         end
       elseif signs_differ(previous, wanted) then
-        sending = 0
-      elseif wanted == 0 or previous == 0 or hold_open(name, hold) then
+        if hold_open(name, hold) then
+          sending = 0
+        else
+          sending = previous
+          if hold > 0 then
+            hold_for[name] = hold - 1
+          end
+        end
+      elseif wanted == 0 or hold_open(name, hold) then
         sending = limit_step(name, previous, wanted)
       else
         sending = previous
@@ -201,6 +232,8 @@ local function apply_targets(outputs, devices, options)
   -- Budget shedding, zero restarts, and reversals also pass this gate. A
   -- reduction that cannot wait stops immediately; an increase waits. This
   -- preserves the stress budget and leaves emergency zero unconditional.
+  -- A stress trim must not walk the integer every tick either: that bypasses
+  -- the hold and is what breaks the RCS controllers.
   for name, rpm in pairs(applied.rsc) do
     local previous = previous_targets[name]
     if rpm ~= previous and rpm ~= 0 and flicker_score(name) + 10 > FLICKER_LIMIT then
@@ -208,6 +241,10 @@ local function apply_targets(outputs, devices, options)
       if budget_room ~= nil and stress.consumed(applied) > budget_room then
         applied.rsc[name] = 0
       end
+    end
+    rpm = applied.rsc[name]
+    if previous ~= nil and rpm ~= previous and rpm ~= 0 and not hold_open(name, hold_for[name] or 0) then
+      applied.rsc[name] = previous
     end
   end
   local writes = {}
