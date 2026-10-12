@@ -72,12 +72,27 @@ function M.key(state, name, down, held)
     return state, nil
   end
   if name == "s" then
+    state.diag_all = false
     state.mode = "semi"
     return state, protocol.validate({ type = "set_mode", mode = "semi" })
   end
   if name == "k" then
+    state.diag_all = false
     state.entered_altitude = nil
     return state, protocol.validate({ type = "cancel_jobs" })
+  end
+  if name == "e" or name == "c" then
+    state.diag_all = false
+  end
+  if name == "t" then
+    if state.diag_all then
+      state.diag_all = false
+      return state, protocol.validate({ type = "diagnostic_exit" })
+    end
+    state.diag_all = true
+    state.stick = { x = 0, y = 0, z = 0 }
+    state.pressed = {}
+    return state, protocol.validate({ type = "diagnostic_all" })
   end
   if name == "e" then
     return state, protocol.validate({ type = "emergency" })

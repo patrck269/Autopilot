@@ -442,6 +442,12 @@ local function describe(message)
   if message.type == "cancel_jobs" then
     return "Cancel jobs"
   end
+  if message.type == "diagnostic_all" then
+    return "All controllers 15 RPM"
+  end
+  if message.type == "diagnostic_exit" then
+    return "Diagnostics off"
+  end
   return message.type
 end
 
@@ -513,6 +519,7 @@ local function draw_guide(status_line, guide)
   text(rightX + 1, 10, "SAFETY", colors.white, colors.red, rightText)
   text(rightX + 1, 12, "E  Emergency stop", colors.white, colors.red, rightText)
   text(rightX + 1, 13, "C  Clear emergency", colors.white, colors.red, rightText)
+  text(rightX + 1, 14, "T  All RSC 15 RPM", colors.white, colors.red, rightText)
 
   fill(1, height, width, 1, colors.black)
   local line = status_line

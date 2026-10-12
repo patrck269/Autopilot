@@ -36,6 +36,12 @@ end
 function M.apply(selection, hover)
   local outputs = mix.zero()
   outputs.diag_relay = nil
+  if selection ~= nil and selection.type == "diagnostic_all" then
+    for name in pairs(outputs.rsc) do
+      outputs.rsc[name] = 15
+    end
+    return outputs
+  end
   local hover_on = hover ~= nil and hover.enabled == true
   if hover_on then
     outputs.rsc.rsc16 = require("config").clamp_rpm(hover.rpm)

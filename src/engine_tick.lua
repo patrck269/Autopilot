@@ -670,6 +670,15 @@ local function apply_command(state, command, current_rpm)
   if state.emergency then
     return
   end
+  if command.type == "diagnostic_all" then
+    state.outputs_disabled = false
+    state.diagnostic = true
+    state.hover_diag = false
+    state.mode = "diagnostic"
+    state.diag_selection = { type = "diagnostic_all", rpm = 15 }
+    state.stick = { x = 0, y = 0, z = 0 }
+    return
+  end
   if command.type == "diagnostic_enter" then
     state.outputs_disabled = false
     if command.hover and not state.hover_diag then
@@ -706,6 +715,12 @@ local function apply_command(state, command, current_rpm)
   if command.type == "diagnostic_elevation" then
     state.diag_elevation = command.rpm
     return
+  end
+  if state.diagnostic and (command.type == "set_mode" or command.type == "cancel_jobs") then
+    state.diagnostic = false
+    state.hover_diag = false
+    state.diag_selection = nil
+    state.mode = "semi"
   end
   if state.diagnostic then
     return

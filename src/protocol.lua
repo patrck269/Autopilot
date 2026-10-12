@@ -73,6 +73,8 @@ function M.validate(msg)
     return { type = kind }
   elseif kind == "diagnostic_enter" and type(msg.hover) == "boolean" then
     return { type = kind, hover = msg.hover }
+  elseif kind == "diagnostic_all" then
+    return { type = kind, rpm = 15 }
   elseif kind == "diagnostic_elevation" and number.finite(msg.rpm) then
     return { type = kind, rpm = number.clamp(msg.rpm, 0, 32769) }
   elseif kind == "diagnostic_set" then
