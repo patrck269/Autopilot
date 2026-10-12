@@ -579,6 +579,7 @@ local function apply_command(state, command, current_rpm)
   end
   if command.type == "clear_emergency" then
     state.emergency = false
+    state.outputs_disabled = false
     state.mode = "semi"
     return
   end

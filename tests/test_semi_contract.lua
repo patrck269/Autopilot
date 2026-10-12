@@ -54,8 +54,61 @@ print("stick command stays semi and does not enter manual")
 local emergency = step(fresh(), { type = "emergency" })
 local cleared = step(emergency, { type = "clear_emergency" })
 A.eq(cleared.emergency, false, "emergency cleared")
+A.eq(cleared.outputs_disabled, false, "clear enables the props again")
 A.eq(cleared.mode, "semi", "emergency clear returns to semi")
 print("emergency clear returns to semi")
+
+package.loaded.runtime = nil
+local runtime = require("runtime")
+local mix = require("mix")
+local writes = 0
+local sent = nil
+local device = {
+  getTargetSpeed = function()
+    return 400
+  end,
+  setTargetSpeed = function(rpm)
+    writes = writes + 1
+    sent = rpm
+  end,
+}
+local devices = {
+  rsc16 = device,
+  rsc17 = {
+    getTargetSpeed = function() return 0 end,
+    setTargetSpeed = function() end,
+  },
+}
+runtime.apply(mix.zero(), devices)
+runtime.apply(mix.zero(), devices)
+A.eq(writes, 1, "a held emergency zero is not rewritten")
+A.eq(sent, 0, "emergency stops elevation")
+local restarted = cleared
+restarted.hover_rpm = 430
+restarted.altitude = 120
+restarted.altitude_set = true
+restarted.job = "altitude"
+local _, flying = step(restarted, nil, ship_at(120, 0))
+package.loaded.runtime = nil
+local clean = require("runtime")
+local expected = nil
+clean.apply(flying, {
+  rsc16 = { setTargetSpeed = function(rpm) expected = rpm end },
+})
+local stopped = {
+  getTargetSpeed = function() return 0 end,
+  setTargetSpeed = function(rpm) sent = rpm end,
+}
+runtime.relax()
+runtime.apply(flying, { rsc16 = stopped })
+A.eq(sent, expected, "cleared emergency restarts at the full elevation command")
+if sent == nil or math.abs(sent) < 100 then
+  error("cleared emergency left elevation at " .. tostring(sent))
+end
+local held = sent
+runtime.apply(flying, { rsc16 = stopped })
+A.eq(sent, held, "a lagging zero does not crawl the restarted elevation")
+print("cleared emergency restarts elevation at " .. tostring(sent))
 
 local jobs = require("jobs")
 local function flown_accel(rpm)

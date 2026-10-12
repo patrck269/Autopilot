@@ -151,4 +151,26 @@ runtime.apply(zero, {rsc17 = changed})
 A.eq(actual, 0, "external target change cannot bypass zero")
 A.eq(writes, 2, "external target change is corrected")
 
+runtime = reload()
+local stale_writes = 0
+local stale = {
+  getTargetSpeed = function() return 400 end,
+  setTargetSpeed = function() stale_writes = stale_writes + 1 end,
+}
+runtime.apply({ rsc = { rsc16 = 0 }, relays = {} }, { rsc16 = stale })
+runtime.apply({ rsc = { rsc16 = 0 }, relays = {} }, { rsc16 = stale })
+A.eq(stale_writes, 1, "a repeated stale reading does not rewrite zero")
+
+runtime.relax()
+local restarted = nil
+local lagging = {
+  getTargetSpeed = function() return 0 end,
+  setTargetSpeed = function(rpm) restarted = rpm end,
+}
+runtime.apply({ rsc = { rsc16 = 5000 }, relays = {} }, { rsc16 = lagging })
+A.eq(restarted, 5000, "a cleared stop restarts elevation at the full command")
+restarted = nil
+runtime.apply({ rsc = { rsc16 = 5000 }, relays = {} }, { rsc16 = lagging })
+A.eq(restarted, nil, "a lagging zero read does not crawl the restart")
+
 os.clock = real_clock

@@ -768,6 +768,9 @@ local function flight_loop()
       pending = {}
       for i = 1, #commands do
         shell_mod.apply_latch(session, state, commands[i])
+        if commands[i].type == "clear_emergency" then
+          runtime.relax()
+        end
       end
       shell_mod.apply_latch(session, state, nil)
       local outputs

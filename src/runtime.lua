@@ -21,12 +21,30 @@ local held_since = {}
 local chase_left = {}
 local flicker = {}
 local flicker_clock = {}
+-- Last getTargetSpeed integer already accounted for. A lagging controller
+-- keeps returning the old value after setTargetSpeed(0); writing zero again
+-- on every tick rebuilds the kinetic network and fills the flicker budget.
+local seen_speed = {}
+-- relax() arms one apply that does not adopt the stopped controller, so the
+-- next elevation command is a first write rather than a 99 RPM step from 0.
+local fresh = false
 
 local function forget(name)
   last_rpm[name] = nil
   hold_for[name] = nil
   held_since[name] = nil
   chase_left[name] = nil
+end
+
+function M.relax()
+  last_rpm = {}
+  hold_for = {}
+  held_since = {}
+  chase_left = {}
+  flicker = {}
+  flicker_clock = {}
+  seen_speed = {}
+  fresh = true
 end
 
 local relay_state = {}
@@ -112,19 +130,26 @@ end
 local function apply_targets(outputs, devices, options)
   local applied = {rsc={}, relays=outputs.relays, diag_relay=outputs.diag_relay}
   local previous_targets = {}
+  local skip_read = fresh
+  fresh = false
   for name, rpm in pairs(outputs.rsc) do
     local device = devices[name]
     if device ~= nil and device.setTargetSpeed ~= nil then
       local wanted = integer_rpm(rpm)
       local previous = last_rpm[name]
-      if device.getTargetSpeed ~= nil then
+      if device.getTargetSpeed ~= nil and not skip_read then
         local current = device.getTargetSpeed()
         if type(current) == "number" then
           current = integer_rpm(current)
-          if current ~= previous then
-            forget(name)
-            previous = current
-            last_rpm[name] = current
+          -- An unchanged reading is the value we already handled. Adopting it
+          -- again turns a held zero into a new target and rewrites it.
+          if current ~= seen_speed[name] then
+            seen_speed[name] = current
+            if current ~= previous then
+              forget(name)
+              previous = current
+              last_rpm[name] = current
+            end
           end
         end
       end
@@ -216,6 +241,12 @@ local function apply_targets(outputs, devices, options)
           failed = failure or "actuator write failed"
         elseif returned ~= false then
           remember(name, rpm, rpm == integer_rpm(outputs.rsc[name]))
+          if device.getTargetSpeed ~= nil then
+            local after = device.getTargetSpeed()
+            if type(after) == "number" then
+              seen_speed[name] = integer_rpm(after)
+            end
+          end
         elseif not increases then
           reduction_failed = true
         end
