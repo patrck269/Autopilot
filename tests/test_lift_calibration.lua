@@ -55,12 +55,18 @@ if state.pid_gains.equilibrium <= 430 then
 end
 A.eq(jumped, true, "the new hover RPM is one elevation write")
 local raised = state.pid_gains.equilibrium
-for _ = 1, 40 do
-  state = fly(state, 1, heavy)
-end
-A.eq(state.pid_gains.equilibrium, raised, "a rising hull keeps the RPM that lifted it")
-A.eq(state.lift_locked, true, "lift calibration locks after the hull rises")
 print("heavy hull hover RPM rose from 430 to " .. tostring(raised))
+state.altitude = 100
+local trimmed = false
+for _ = 1, 50 do
+  state = fly(state, 1, heavy)
+  if state.pid_gains.equilibrium < raised then
+    trimmed = true
+  end
+end
+A.eq(trimmed, true, "a hull above its altitude and still climbing lowers the hover RPM")
+print("hover RPM trimmed from " .. tostring(raised) .. " to " .. tostring(state.pid_gains.equilibrium))
+state.pid_gains = pid.calibrate(raised, 0.05)
 
 state.bearing = 1
 state.bearing_set = true

@@ -255,10 +255,32 @@ end
 -- blade length, pitch, and rotational speed, and each prop is force-capped,
 -- so ship mass does not convert to an RPM. While this hull is asked to climb
 -- and is not rising, raise that sea-level equilibrium by half, no more than
--- once every two seconds. Side and forward props use the same scale.
+-- once every two seconds. Once it is above the target and still climbing,
+-- lower the equilibrium so the hover RPM can level the ship. Side and
+-- forward props use the same scale.
 local LIFT_VY = 0.25
 local LIFT_WAIT = 2
 local LIFT_STEP = 1.5
+local LIFT_TRIM = 1.15
+
+local function set_lift_equilibrium(state, eq, cfg)
+  local floor_rpm = cfg.hover_equilibrium or 430
+  local cap = cfg.max_rpm or 32769
+  if eq < floor_rpm then
+    eq = floor_rpm
+  end
+  if eq > cap then
+    eq = cap
+  end
+  local current = state.pid_gains.equilibrium or floor_rpm
+  if math.abs(eq - current) <= current * 0.02 then
+    return false
+  end
+  state.pid_gains = pid.calibrate(eq, 0.05)
+  state.elevation_equilibrium = eq
+  state.lift_jump = true
+  return true
+end
 
 local function calibrate_lift(state, ship, cfg, now)
   if ship == nil or ship.y == nil or ship.vy == nil then
@@ -267,20 +289,28 @@ local function calibrate_lift(state, ship, cfg, now)
   if state.pid_gains == nil then
     state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
   end
-  if ship.vy >= LIFT_VY then
-    state.lift_locked = true
+  local dead = cfg.altitude_deadzone or 8
+  local target = state.altitude
+  local eq = state.pid_gains.equilibrium or cfg.hover_equilibrium or 430
+  -- Past the setpoint and still going up. The RPM that broke ground is more
+  -- than hover, and the altitude controller cannot command below a fraction
+  -- of it, so the hull would climb without a lower equilibrium.
+  if target ~= nil and ship.y > target and ship.vy > 0.05 then
     state.lift_stuck_since = nil
-    return
-  end
-  if state.lift_locked then
-    if ship.vy < -0.5 then
-      state.lift_locked = false
-    else
+    if state.lift_trim_since == nil then
+      state.lift_trim_since = now
       return
     end
+    if now - state.lift_trim_since < LIFT_WAIT then
+      return
+    end
+    if set_lift_equilibrium(state, eq / LIFT_TRIM, cfg) then
+      state.lift_trim_since = now
+    end
+    return
   end
-  local dead = cfg.altitude_deadzone or 8
-  if state.altitude == nil or state.altitude <= ship.y + dead then
+  state.lift_trim_since = nil
+  if target == nil or ship.y + dead >= target or ship.vy >= LIFT_VY then
     state.lift_stuck_since = nil
     return
   end
@@ -291,19 +321,14 @@ local function calibrate_lift(state, ship, cfg, now)
   if now - state.lift_stuck_since < LIFT_WAIT then
     return
   end
-  local eq = state.pid_gains.equilibrium or cfg.hover_equilibrium or 430
   local cap = cfg.max_rpm or 32769
   local raised = eq * LIFT_STEP
   if raised > cap then
     raised = cap
   end
-  if raised <= eq * 1.02 then
-    return
+  if set_lift_equilibrium(state, raised, cfg) then
+    state.lift_stuck_since = now
   end
-  state.pid_gains = pid.calibrate(raised, 0.05)
-  state.elevation_equilibrium = raised
-  state.lift_jump = true
-  state.lift_stuck_since = now
 end
 
 local function device_scale(scale)
