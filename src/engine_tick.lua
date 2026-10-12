@@ -251,6 +251,59 @@ local function learn_elev_scale(state, ship, held_rpm)
   arm_elev_window(state, ship, held_rpm, now)
 end
 
+-- 430 RPM is the light-hull hover. A heavier ship does not leave the ground
+-- there. While this hull is asked to climb and is not rising, raise that
+-- sea-level equilibrium by half, no more than once every two seconds.
+local LIFT_VY = 0.25
+local LIFT_WAIT = 2
+local LIFT_STEP = 1.5
+
+local function calibrate_lift(state, ship, cfg, now)
+  if ship == nil or ship.y == nil or ship.vy == nil then
+    return
+  end
+  if state.pid_gains == nil then
+    state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
+  end
+  if ship.vy >= LIFT_VY then
+    state.lift_locked = true
+    state.lift_stuck_since = nil
+    return
+  end
+  if state.lift_locked then
+    if ship.vy < -0.5 then
+      state.lift_locked = false
+    else
+      return
+    end
+  end
+  local dead = cfg.altitude_deadzone or 8
+  if state.altitude == nil or state.altitude <= ship.y + dead then
+    state.lift_stuck_since = nil
+    return
+  end
+  if state.lift_stuck_since == nil then
+    state.lift_stuck_since = now
+    return
+  end
+  if now - state.lift_stuck_since < LIFT_WAIT then
+    return
+  end
+  local eq = state.pid_gains.equilibrium or cfg.hover_equilibrium or 430
+  local cap = cfg.max_rpm or 32769
+  local raised = eq * LIFT_STEP
+  if raised > cap then
+    raised = cap
+  end
+  if raised <= eq * 1.02 then
+    return
+  end
+  state.pid_gains = pid.calibrate(raised, 0.05)
+  state.elevation_equilibrium = raised
+  state.lift_jump = true
+  state.lift_stuck_since = now
+end
+
 local function device_scale(scale)
   if scale == nil or scale <= 0 then
     return 1
@@ -910,6 +963,13 @@ function M.tick(state, input)
   if state.hover_rpm == 0 and (vertical == "descend" or vertical == "reverse") then
     state.hover_rpm = cfg.climb_rpm * 0.25
   end
+  local mass = cfg.ship_mass
+  state.lift_jump = false
+  if type(input.ship_mass) == "number" and input.ship_mass > 0 then
+    mass = input.ship_mass
+    state.ship_mass = mass
+    calibrate_lift(state, ship, cfg, os.clock())
+  end
   local target_y = state.altitude
   if state.job == nil and state.mode == "auto" and not state.altitude_set
       and state.waypoint_x ~= nil and state.waypoint_z ~= nil then
@@ -931,18 +991,18 @@ function M.tick(state, input)
   local stop_y = (not stick_vertical) and (state.job == "hover" or (state.job ~= "altitude" and state.mode == "manual" and state.stick.z == 0))
   local x_hold, z_hold, y_hold = 0, 0, rest_elevation()
   if stop_x then
-    x_hold, state.brake_x = jobs.hold_stop(state.brake_x, forward_speed, cfg.ship_mass, 0, false)
+    x_hold, state.brake_x = jobs.hold_stop(state.brake_x, forward_speed, mass, 0, false)
   else
     state.brake_x = nil
   end
   if stop_z then
-    z_hold, state.brake_z = jobs.hold_stop(state.brake_z, side_speed, cfg.ship_mass, 0, false)
+    z_hold, state.brake_z = jobs.hold_stop(state.brake_z, side_speed, mass, 0, false)
   else
     state.brake_z = nil
   end
   local elev_reverse = false
   if stop_y then
-    y_hold, state.brake_elev, elev_reverse = jobs.hold_stop(state.brake_elev, ship.vy, cfg.ship_mass, rest_elevation(), true)
+    y_hold, state.brake_elev, elev_reverse = jobs.hold_stop(state.brake_elev, ship.vy, mass, rest_elevation(), true)
     if math.abs(ship.vy) >= 0.05 then
       y_hold = config.clamp_rpm(y_hold * pid.thrust_scale(ship.y))
     elseif elev_reverse ~= true and y_hold < rest_elevation() then
@@ -994,7 +1054,7 @@ function M.tick(state, input)
     state.brake_elev = nil
   end
   if state.brake_x ~= nil then
-    local distance = jobs.stopping_distance(forward_speed, state.brake_x.rpm, cfg.ship_mass)
+    local distance = jobs.stopping_distance(forward_speed, state.brake_x.rpm, mass)
     if distance > state.stop_distance and distance < math.huge then
       state.stop_distance = distance
     end
@@ -1273,7 +1333,7 @@ function M.tick(state, input)
   end
   if not (state.mode == "manual" and state.stick.y ~= 0) then
     local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
-    local spin = manual.yaw_rpm(yaw_err, ship.yaw_rate, cfg.ship_mass, cfg.yaw_damping)
+    local spin = manual.yaw_rpm(yaw_err, ship.yaw_rate, mass, cfg.yaw_damping)
     if spin ~= 0 then
       local y13, y14, y15, y12 = mix.sides(0, spin, 1)
       outputs.rsc.rsc13 = mix.add_rpm(outputs.rsc.rsc13, y13)

@@ -50,6 +50,20 @@ function M.relax()
   fresh = true
 end
 
+local jump_names = {}
+
+-- The next apply of this controller is a first write. A heavier hull has to
+-- take a new hover RPM in one change; stepping by 99 would leave it on the ground.
+function M.jump(name)
+  if type(name) ~= "string" then
+    return
+  end
+  jump_names[name] = true
+  last_rpm[name] = nil
+  held_since[name] = nil
+  hold_for[name] = nil
+end
+
 local relay_state = {}
 
 local function relay_write(name, side, value, send)
@@ -160,7 +174,12 @@ local function apply_targets(outputs, devices, options)
     if device ~= nil and device.setTargetSpeed ~= nil then
       local wanted = integer_rpm(rpm)
       local previous = last_rpm[name]
-      if device.getTargetSpeed ~= nil and not skip_read then
+      local jumping = jump_names[name]
+      if jumping then
+        jump_names[name] = nil
+        previous = nil
+      end
+      if device.getTargetSpeed ~= nil and not skip_read and not jumping then
         local current = device.getTargetSpeed()
         if type(current) == "number" then
           current = integer_rpm(current)

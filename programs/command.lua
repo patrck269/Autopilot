@@ -761,6 +761,13 @@ local function flight_loop()
       elseif elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
         elevation_rpm = elevation_device.getTargetSpeed()
       end
+      local ship_mass = nil
+      if ship ~= nil and ship.getMass ~= nil then
+        local ok, mass = pcall(ship.getMass)
+        if ok and type(mass) == "number" and mass > 0 then
+          ship_mass = mass
+        end
+      end
       session.ship = sample
       session.su = consumed
       session.cfg = cfg
@@ -786,7 +793,12 @@ local function flight_loop()
         stick_fresh = os.clock() - last_stick_at <= (cfg.stick_timeout or 0.35),
         config = cfg,
         current_elevation_rpm = elevation_rpm,
+        ship_mass = ship_mass,
       })
+      if state.lift_jump then
+        runtime.jump("rsc16")
+        state.lift_jump = false
+      end
       session.state = state
       last_outputs = outputs
       last_sample = sample
