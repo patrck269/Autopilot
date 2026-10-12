@@ -69,12 +69,12 @@ function M.compass(heading, width)
 end
 
 local FLIGHT_PARTS = {
-  { id = "rsc10", label = "X prop" },
-  { id = "rsc11", label = "Elev prop" },
-  { id = "rsc6", label = "PB side" },
-  { id = "rsc7", label = "SA side" },
-  { id = "rsc8", label = "PA side" },
-  { id = "rsc9", label = "BS side" },
+  { id = "rsc17", label = "Thrusters" },
+  { id = "rsc16", label = "Elevation" },
+  { id = "rsc13", label = "Bow port" },
+  { id = "rsc14", label = "Bow starboard" },
+  { id = "rsc15", label = "Stern port" },
+  { id = "rsc12", label = "Stern starboard" },
 }
 
 function M.flight(sample, outputs)
@@ -109,39 +109,36 @@ end
 function M.engines(outputs, shaft_rpm)
   local rsc = outputs.rsc
   return {
-    { type = "Main shaft", devices = { device("Speedometer", shaft_rpm or 0) } },
-    { type = "X axis propellers", devices = { device("RSC 10", rsc.rsc10) } },
-    { type = "Z axis propellers", devices = { device("RSC 11", rsc.rsc11) } },
+    { type = "Elevation RPM", devices = { device("Speedometer 1", shaft_rpm or 0) } },
+    { type = "Thrusters", devices = { device("RSC 17", rsc.rsc17) } },
+    { type = "Elevation", devices = { device("RSC 16", rsc.rsc16) } },
     {
       type = "RCS",
       devices = {
-        device("RSC 6", rsc.rsc6),
-        device("RSC 7", rsc.rsc7),
-        device("RSC 8", rsc.rsc8),
-        device("RSC 9", rsc.rsc9),
+        device("RSC 13", rsc.rsc13),
+        device("RSC 14", rsc.rsc14),
+        device("RSC 15", rsc.rsc15),
+        device("RSC 12", rsc.rsc12),
       },
     },
   }
 end
 
 local EMERGENCY_PARTS = {
-  { label = "PB prop", rpm = "rsc11", cut = "relay7", x = 0, y = 0 },
-  { label = "SB prop", rpm = "rsc11", cut = "relay8", x = 1, y = 0 },
-  { label = "PS prop", rpm = "rsc11", cut = "relay10", x = 0, y = 1 },
-  { label = "SS prop", rpm = "rsc11", cut = "relay9", x = 1, y = 1 },
-  { label = "PB side", rpm = "rsc6", x = 0, y = 0.35 },
-  { label = "BS side", rpm = "rsc9", x = 1, y = 0.35 },
-  { label = "PA side", rpm = "rsc8", x = 0, y = 0.65 },
-  { label = "SA side", rpm = "rsc7", x = 1, y = 0.65 },
-  { label = "X prop", rpm = "rsc10", cut = "relay3", x = 0.5, y = 0.5 },
+  { label = "Elevation", rpm = "rsc16", x = 0.5, y = 0 },
+  { label = "Bow port", rpm = "rsc13", x = 0, y = 0.35 },
+  { label = "Bow starboard", rpm = "rsc14", x = 1, y = 0.35 },
+  { label = "Stern port", rpm = "rsc15", x = 0, y = 0.65 },
+  { label = "Stern starboard", rpm = "rsc12", x = 1, y = 0.65 },
+  { label = "Thrusters", rpm = "rsc17", x = 0.5, y = 0.5 },
 }
 
 function M.stress(consumed, capacity, outputs)
   local rsc = outputs.rsc or {}
-  local x = math.abs(rsc.rsc10 or 0) * stress_model.X_IMPACT * stress_model.X_PROPS
-  local z = math.abs(rsc.rsc11 or 0) * stress_model.ELEVATION_IMPACT * stress_model.ELEVATION_PROPS
+  local x = math.abs(rsc.rsc17 or 0) * stress_model.X_IMPACT * stress_model.X_PROPS
+  local z = math.abs(rsc.rsc16 or 0) * stress_model.ELEVATION_IMPACT * stress_model.ELEVATION_PROPS
   local rcs = 0
-  for _, name in ipairs({ "rsc6", "rsc7", "rsc8", "rsc9" }) do
+  for _, name in ipairs({ "rsc12", "rsc13", "rsc14", "rsc15" }) do
     rcs = rcs + math.abs(rsc[name] or 0) * stress_model.RCS_IMPACT
   end
   local total = x + z + rcs

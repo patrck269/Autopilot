@@ -1,6 +1,6 @@
 local A=dofile("tests/assert.lua")
 local saved={fs=fs,http=http,write=write,printError=printError,reboot=os.reboot,print=print}
-for _,program in ipairs({"command","pocket","watchdog"}) do
+for _,program in ipairs({"command","watchdog"}) do
   for _,failure in ipairs({"download","commit","none"}) do
     local data={["startup.lua"]="old startup",["src/config.lua"]="old config"}
     local directories={}

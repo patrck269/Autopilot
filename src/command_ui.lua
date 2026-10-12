@@ -68,17 +68,12 @@ function M.key(state, name, down, held)
     state.stick = { x = 0, y = 0, z = 0 }
     state.pressed = {}
   end
-  if name == "m" then
-    state.mode = "manual"
-    return state, protocol.validate({ type = "set_mode", mode = "manual" })
+  if name == "m" or name == "u" or name == "w" then
+    return state, nil
   end
   if name == "s" then
     state.mode = "semi"
     return state, protocol.validate({ type = "set_mode", mode = "semi" })
-  end
-  if name == "u" then
-    state.mode = "auto"
-    return state, protocol.validate({ type = "set_mode", mode = "auto" })
   end
   if name == "k" then
     state.entered_altitude = nil

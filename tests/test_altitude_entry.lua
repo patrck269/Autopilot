@@ -122,9 +122,8 @@ local function altitude_entry(label, mode_key, mode_name, altitude_steps, typed,
     A.eq(state.stick.y, 0, label .. " released stick y")
     A.eq(state.stick.z, 0, label .. " released stick z")
   else
-    if outputs.rsc.rsc10 == 0 then
-      error(label .. " held stick did not fly")
-    end
+    A.eq(state.mode, "semi", label .. " stick stays semi")
+    A.eq(outputs.rsc.rsc17, 0, label .. " stick does not command the old manual velocity hold")
   end
 
   local vy
@@ -134,14 +133,14 @@ local function altitude_entry(label, mode_key, mode_name, altitude_steps, typed,
       error(label .. " did not adopt the rpm that was holding the ship")
     end
     A.near(state.elev_anchor, hold_rpm, 1e-3, label .. " anchor")
-    local ratio = outputs.rsc.rsc11 / state.elev_anchor
+    local ratio = outputs.rsc.rsc16 / state.elev_anchor
     vy = (10 * (ratio ^ 1.2) - 10) * 0.05
     if vy * (typed - start_y) <= 0 then
-      error(label .. " elevation rpm " .. tostring(outputs.rsc.rsc11)
+      error(label .. " elevation rpm " .. tostring(outputs.rsc.rsc16)
         .. " did not start toward " .. tostring(typed) .. " from " .. tostring(state.elev_anchor))
     end
   else
-    vy = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true) * 0.05
+    vy = elevation_accel(outputs.rsc.rsc16, outputs.relays.relay6 == true) * 0.05
     if vy * (typed - start_y) <= 0 then
       error(label .. " vertical speed " .. tostring(vy) .. " did not start toward " .. tostring(typed))
     end
@@ -165,7 +164,7 @@ local function altitude_entry(label, mode_key, mode_name, altitude_steps, typed,
   end
 end
 
-altitude_entry("manual press", "m", "manual", {
+altitude_entry("manual press", "m", "semi", {
   { "one", false },
   { "two", false },
   { "two", true },
@@ -181,21 +180,21 @@ altitude_entry("semi repeat", "s", "semi", {
   { "numPadEnter", false },
 }, 120, 100, { { "right", true, false }, { "right", true, true } }, 1)
 
-altitude_entry("auto release", "u", "auto", {
+altitude_entry("auto release", "u", "semi", {
   { "eight", false },
   { "zero", false },
   { "zero", true },
   { "enter", false },
 }, 80, 100, { { "right", true, false }, { "right", false, false } }, 0)
 
-altitude_entry("manual quiet", "m", "manual", {
+altitude_entry("manual quiet", "m", "semi", {
   { "one", false },
   { "two", false },
   { "zero", false },
   { "enter", false },
 }, 120, 100, {}, 0)
 
-altitude_entry("manual short", "m", "manual", {
+altitude_entry("manual short", "m", "semi", {
   { "one", false },
   { "one", false },
   { "one", true },

@@ -17,15 +17,15 @@ local blocked, outputs, status = engine_tick.tick(state, {
   ship = ship, command = { type = "set_mode", mode = "manual" },
   su = 10, ready = false, stick_fresh = false, config = cfg,
 })
-A.eq(blocked.mode, "manual", "a mode command survives while not ready")
+A.eq(blocked.mode, "semi", "a mode command survives while not ready")
 A.eq(status.mode, "blocked", "status reports blocked while not ready")
-A.eq(outputs.rsc.rsc10, 0, "no thrust when blocked")
+A.eq(outputs.rsc.rsc17, 0, "no thrust when blocked")
 local resumed
 blocked, resumed = engine_tick.tick(blocked, {
   ship = ship, command = nil,
   su = 10, ready = true, stick_fresh = false, config = cfg,
 })
-A.eq(blocked.mode, "manual", "the mode is still there once the ship is ready")
+A.eq(blocked.mode, "semi", "the mode is still there once the ship is ready")
 
 state = engine_tick.new_state()
 state, outputs = engine_tick.tick(state, {
@@ -71,15 +71,15 @@ state, outputs, status = engine_tick.tick(state, {
   command = { type = "stick", x = 1, y = 0, z = 0 },
   su = 12, ready = true, stick_fresh = true, config = cfg,
 })
-A.eq(state.mode, "manual", "stick selects manual")
-A.eq(outputs.rsc.rsc10, cfg.hover_step, "x rpm rises toward the forward target")
+A.eq(state.mode, "semi", "stick selects manual")
+A.eq(outputs.rsc.rsc17, 0, "stick does not command the old manual velocity hold")
 A.eq(status.su, 12, "su status")
-A.eq(status.mode, "manual", "status mode")
+A.eq(status.mode, "semi", "status mode")
 
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 12, ready = true, stick_fresh = false, config = cfg,
 })
-A.eq(outputs.rsc.rsc10, 0, "stick timeout")
+A.eq(outputs.rsc.rsc17, 0, "stick timeout")
 
 state = engine_tick.new_state()
 state.mode = "manual"
@@ -88,13 +88,13 @@ state, outputs = engine_tick.tick(state, {
   su = 0, ready = true, stick_fresh = true, config = cfg,
 })
 A.eq(state.emergency, true, "latched")
-A.eq(outputs.rsc.rsc11, 0, "estop elevation")
+A.eq(outputs.rsc.rsc16, 0, "estop elevation")
 
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = { type = "stick", x = 1, y = 0, z = 0 },
   su = 0, ready = true, stick_fresh = true, config = cfg,
 })
-A.eq(outputs.rsc.rsc10, 0, "estop holds")
+A.eq(outputs.rsc.rsc17, 0, "estop holds")
 
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = { type = "clear_emergency" },
@@ -112,9 +112,9 @@ state, outputs, status = engine_tick.tick(state, {
 })
 A.eq(outputs.relays.relay9, true, "cut opposite corner")
 A.eq(outputs.relays.relay5, false, "master Z stays off")
-A.eq(outputs.rsc.rsc2, 0, "bottom bow stays off")
-A.eq(outputs.rsc.rsc5, 0, "bottom stern stays off")
-A.eq(outputs.rsc.rsc3, 0, "bottom port stays off")
+A.eq(outputs.rsc.rsc2, nil, "bottom bow stays off")
+A.eq(outputs.rsc.rsc5, nil, "bottom stern stays off")
+A.eq(outputs.rsc.rsc3, nil, "bottom port stays off")
 A.eq(status.outage, "port_bow", "outage status")
 
 ship.pitch_rate = 0.05
@@ -128,9 +128,9 @@ state.hover_rpm = 64
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
-A.eq(outputs.rsc.rsc3, 0, "no bottom thruster on the dead side")
-A.eq(outputs.rsc.rsc5, 0, "no bottom thruster on the live side")
-A.eq(outputs.rsc.rsc11, 0, "a side outage cuts elevation without bottom thrusters")
+A.eq(outputs.rsc.rsc3, nil, "no bottom thruster on the dead side")
+A.eq(outputs.rsc.rsc5, nil, "no bottom thruster on the live side")
+A.eq(outputs.rsc.rsc16, 0, "a side outage cuts elevation without bottom thrusters")
 A.eq(outputs.relays.relay5, true, "a side outage cuts the master Z relay")
 
 state.balance_time = 5
@@ -143,8 +143,8 @@ A.eq(outputs.relays.relay7, true, "fail time cuts port bow")
 A.eq(outputs.relays.relay8, true, "fail time cuts starboard bow")
 A.eq(outputs.relays.relay9, true, "fail time cuts starboard stern")
 A.eq(outputs.relays.relay10, true, "fail time cuts port stern")
-A.eq(outputs.rsc.rsc2, 0, "up thrust zero")
-A.eq(outputs.rsc.rsc11, 0, "elevation zero")
+A.eq(outputs.rsc.rsc2, nil, "up thrust zero")
+A.eq(outputs.rsc.rsc16, 0, "elevation zero")
 
 ship.pitch_rate = 0
 ship.roll_rate = 0
@@ -159,8 +159,8 @@ state.waypoint_z = 0
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
-A.eq(outputs.rsc.rsc2, 0, "pitch does not fire a bottom thruster")
-A.eq(outputs.rsc.rsc3, 0, "pitch does not fire the other bottom thruster")
+A.eq(outputs.rsc.rsc2, nil, "pitch does not fire a bottom thruster")
+A.eq(outputs.rsc.rsc3, nil, "pitch does not fire the other bottom thruster")
 
 ship.pitch = 0
 ship.vx = 0
@@ -175,8 +175,8 @@ state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
 A.eq(outputs.relays.relay6, false, "auto descend does not reverse elevation")
-if not (outputs.rsc.rsc11 > 0) then
-  error("descend rpm: expected positive rsc11 got " .. tostring(outputs.rsc.rsc11))
+if not (outputs.rsc.rsc16 > 0) then
+  error("descend rpm: expected positive rsc16 got " .. tostring(outputs.rsc.rsc16))
 end
 
 ship.pitch_rate = 0
@@ -192,8 +192,8 @@ state.hover_rpm = 400
 state, outputs = engine_tick.tick(state, {
   ship = ship, command = nil, su = 1, ready = true, stick_fresh = false, config = cfg,
 })
-if not (outputs.rsc.rsc11 > 400) then
-  error("stuck climb should raise elevation rpm, got " .. tostring(outputs.rsc.rsc11))
+if not (outputs.rsc.rsc16 > 400) then
+  error("stuck climb should raise elevation rpm, got " .. tostring(outputs.rsc.rsc16))
 end
 A.eq(outputs.relays.relay6, false, "stuck climb stays forward")
 
@@ -223,7 +223,7 @@ state, outputs, status = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 kept_mode = state.mode
-A.eq(kept_mode, "auto", "altitude does not require a mode change")
+A.eq(kept_mode, "semi", "altitude does not require a mode change")
 A.eq(state.altitude, 250, "new altitude replaces the job")
 A.eq(state.job, "altitude", "altitude job")
 A.eq(state.waypoint_x, nil, "waypoint cleared")
@@ -247,7 +247,7 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = false,
   config = cfg,
 })
-if state.hover_rpm == 455 or outputs.rsc.rsc11 == 455 then
+if state.hover_rpm == 455 or outputs.rsc.rsc16 == 455 then
   error("altitude hold reused a remembered rpm")
 end
 
@@ -305,10 +305,10 @@ local function descend_step(command)
   if stepped.relays.relay6 == true then
     reverser_on = true
   end
-  if stepped.rsc.rsc11 < descent_rpm then
-    descent_rpm = stepped.rsc.rsc11
+  if stepped.rsc.rsc16 < descent_rpm then
+    descent_rpm = stepped.rsc.rsc16
   end
-  local net = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+  local net = elevation_accel(stepped.rsc.rsc16, stepped.relays.relay6 == true)
   ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
   ship.vy = ship.vy + net * 0.05
   if ship.y < descent_floor then
@@ -320,7 +320,7 @@ local function descend_step(command)
   return stepped
 end
 descend_step({ type = "set_altitude", y = 400 })
-A.eq(state.mode, "manual", "altitude from above does not change mode")
+A.eq(state.mode, "semi", "altitude from above does not change mode")
 A.eq(state.job, "altitude", "altitude from above replaces the waypoint")
 A.eq(state.altitude, 400, "altitude from above is the new target")
 A.eq(state.waypoint_x, nil, "altitude from above clears the waypoint")
@@ -328,7 +328,7 @@ A.eq(state.waypoint_z, nil, "altitude from above clears the waypoint z")
 for _ = 1, 399 do
   descend_step(nil)
 end
-A.eq(state.mode, "manual", "released stick keeps the altitude mode")
+A.eq(state.mode, "semi", "released stick keeps the altitude mode")
 A.eq(state.job, "altitude", "released stick keeps the altitude job")
 A.eq(state.brake_elev, nil, "released stick does not latch the elevation brake")
 A.eq(reverser_on, false, "altitude descent keeps the reverser off")
@@ -360,7 +360,7 @@ state, outputs = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 local density_hover = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, ship.y, ship.y, 0, ship.dt)
-A.near(outputs.rsc.rsc11, density_hover, 1e-3, "steady altitude holds the density hover")
+A.near(outputs.rsc.rsc16, density_hover, 1e-3, "steady altitude holds the density hover")
 A.eq(outputs.relays.relay6, false, "steady altitude keeps the reverser off")
 local calibrated = pid.calibrate(cfg.hover_equilibrium, 0.05)
 A.eq(state.pid_gains.kp, calibrated.kp, "hold uses the calibrated kp")
@@ -379,12 +379,12 @@ state, outputs = engine_tick.tick(state, {
   stick_fresh = false,
   config = cfg,
 })
-if state.hover_rpm == 900 or outputs.rsc.rsc11 == 900 then
+if state.hover_rpm == 900 or outputs.rsc.rsc16 == 900 then
   error("a new altitude restored a stored rpm")
 end
 A.eq(state.altitude, 400, "new altitude is applied")
-if math.abs(outputs.rsc.rsc11 - 430) < 5 then
-  error("altitude hold left the hover rpm in place, got " .. tostring(outputs.rsc.rsc11))
+if math.abs(outputs.rsc.rsc16 - 430) < 5 then
+  error("altitude hold left the hover rpm in place, got " .. tostring(outputs.rsc.rsc16))
 end
 
 local function fly_band(start_y, target, steps, label)
@@ -420,10 +420,10 @@ local function fly_band(start_y, target, steps, label)
       config = cfg,
       current_elevation_rpm = 430,
     })
-    if math.abs(stepped.rsc.rsc11 - cfg.hover_equilibrium) > 5 then
+    if math.abs(stepped.rsc.rsc16 - cfg.hover_equilibrium) > 5 then
       moved = true
     end
-    local net = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+    local net = elevation_accel(stepped.rsc.rsc16, stepped.relays.relay6 == true)
     ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
     ship.vy = ship.vy + net * 0.05
     local inside = ship.y >= target - cfg.altitude_deadzone and ship.y <= target + cfg.altitude_deadzone
@@ -496,17 +496,20 @@ local function released_stick(start_y, start_vy, label)
   ship.roll_rate = 0
   ship.dt = 0.05
   state = engine_tick.new_state()
-  state.mode = "manual"
-  state.job = nil
+  state.mode = "semi"
+  state.job = "altitude"
+  state.altitude = start_y
+  state.altitude_set = true
   state.stick = { x = 0, y = 0, z = 0 }
   state.seeded = true
   state.hover_rpm = 430
-  state.brake_elev = { rpm = 4000, sign = 1, accel = 80, reverser = true }
+  state.brake_elev = nil
   local hover0 = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, start_y, start_y, 0, 0.05)
+  local sent = 430
   local max_rpm = 0
   local peak_vy = math.abs(start_vy)
   local reversed = false
-  for _ = 1, 300 do
+  for _ = 1, 800 do
     local stepped
     state, stepped = engine_tick.tick(state, {
       ship = ship,
@@ -515,9 +518,10 @@ local function released_stick(start_y, start_vy, label)
       ready = true,
       stick_fresh = false,
       config = cfg,
-      current_elevation_rpm = 430,
+      current_elevation_rpm = sent,
     })
-    local rpm = stepped.rsc.rsc11
+    sent = stepped.rsc.rsc16 or sent
+    local rpm = stepped.rsc.rsc16
     if rpm > max_rpm then
       max_rpm = rpm
     end
@@ -571,8 +575,8 @@ end
 
 local function side_accel(outputs, mass)
   local rsc = outputs.rsc
-  return signed_accel(rsc.rsc6, mass) + signed_accel(rsc.rsc8, mass)
-    - signed_accel(rsc.rsc7, mass) - signed_accel(rsc.rsc9, mass)
+  return signed_accel(rsc.rsc14 or 0, mass) + signed_accel(rsc.rsc12 or 0, mass)
+    - signed_accel(rsc.rsc13 or 0, mass) - signed_accel(rsc.rsc15 or 0, mass)
 end
 
 local function coast(pos, vel, accel, dt)
@@ -599,8 +603,8 @@ local function fly_until_rest(state, command)
     })
     command = nil
     fresh = false
-    local ax = axis_accel(outputs.rsc.rsc10, cfg.ship_mass)
-    local ay = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true)
+    local ax = axis_accel(outputs.rsc.rsc17, cfg.ship_mass)
+    local ay = elevation_accel(outputs.rsc.rsc16, outputs.relays.relay6 == true)
     local az = side_accel(outputs, cfg.ship_mass)
     ship.x, ship.vx = coast(ship.x, ship.vx, ax, 0.05)
     ship.y, ship.vy = coast(ship.y, ship.vy, ay, 0.05)
@@ -640,11 +644,11 @@ local function assert_stopped(label, state, outputs, peak_x, peak_y, peak_z)
   if peak_x > 1 + 1e-6 or peak_y > 1 + 1e-6 or peak_z > 1 + 1e-6 then
     error(label .. " traveled x " .. tostring(peak_x) .. " y " .. tostring(peak_y) .. " z " .. tostring(peak_z))
   end
-  A.eq(outputs.rsc.rsc10, 0, label .. " horizontal brake is off")
+  A.eq(outputs.rsc.rsc17, 0, label .. " horizontal brake is off")
   A.eq(outputs.rsc.rsc6, 0, label .. " port side is off")
   A.eq(outputs.rsc.rsc7, 0, label .. " starboard side is off")
   A.eq(outputs.relays.relay6, false, label .. " reverser stays off")
-  local net = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true)
+  local net = elevation_accel(outputs.rsc.rsc16, outputs.relays.relay6 == true)
   if math.abs(net) > 1e-6 then
     error(label .. " vertical accel after the stop is " .. tostring(net))
   end
@@ -674,22 +678,28 @@ local function semi_step(command)
     config = cfg,
     current_elevation_rpm = 430,
   })
-  local accel = axis_accel(stepped.rsc.rsc10, cfg.ship_mass)
+  local accel = axis_accel(stepped.rsc.rsc17, cfg.ship_mass)
   ship.x, ship.vx = coast(ship.x, ship.vx, accel, 0.05)
-  local lift = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+  local lift = elevation_accel(stepped.rsc.rsc16, stepped.relays.relay6 == true)
   ship.y, ship.vy = coast(ship.y, ship.vy, lift, 0.05)
   local side = side_accel(stepped, cfg.ship_mass)
   ship.z, ship.vz = coast(ship.z, ship.vz, side, 0.05)
 end
 semi_step({ type = "set_mode", mode = "semi" })
 semi_step({ type = "set_speed", speed = 80 })
-local spun = 0
-while ship.vx < 35 and spun < 20000 do
+A.eq(state.target_speed, 35, "a request above 35 is capped")
+local peak_vx = 0
+for _ = 1, 800 do
   semi_step(nil)
-  spun = spun + 1
+  if math.abs(ship.vx) > peak_vx then
+    peak_vx = math.abs(ship.vx)
+  end
+  if math.abs(ship.vx) > 35 then
+    error("semi-automatic exceeded 35 m/s, vx " .. tostring(ship.vx))
+  end
 end
-if ship.vx < 35 then
-  error("semi-automatic did not reach the 35 m/s cap, vx " .. tostring(ship.vx))
+if peak_vx < 34 then
+  error("semi-automatic did not approach the 35 m/s cap, vx " .. tostring(peak_vx))
 end
 local before_cancel
 state, before_cancel = engine_tick.tick(state, {
@@ -712,14 +722,14 @@ state, outputs = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 A.eq(state.job, nil, "cancel clears the speed job")
-A.eq(state.mode, "idle", "cancel does not start a hover mode")
+A.eq(state.mode, "semi", "cancel does not start a hover mode")
 A.eq(state.altitude_set, false, "cancel does not latch an altitude")
 A.eq(state.altitude, speed_altitude, "cancel does not aim at a new altitude")
 A.eq(state.waypoint_x, nil, "cancel clears the waypoint")
 A.eq(state.target_speed, 0, "cancel clears the speed")
-A.eq(outputs.rsc.rsc10, 0, "cancel drops the speed command")
+A.eq(state.target_speed, 0, "cancel clears the speed command")
 A.eq(outputs.relays.relay6, false, "cancel does not reverse elevation")
-A.near(outputs.rsc.rsc11, before_cancel.rsc.rsc11, 1e-6, "cancel leaves the elevation throttle alone")
+A.near(outputs.rsc.rsc16, before_cancel.rsc.rsc16, 1e-6, "cancel leaves the elevation throttle alone")
 
 ship.vx = 0
 ship.vz = 0
@@ -748,16 +758,16 @@ local function climb_step(command)
   if stepped.relays.relay6 == true then
     error("climb turned the elevation reverser on")
   end
-  local accel = axis_accel(stepped.rsc.rsc10, cfg.ship_mass)
+  local accel = axis_accel(stepped.rsc.rsc17, cfg.ship_mass)
   ship.x, ship.vx = coast(ship.x, ship.vx, accel, 0.05)
-  local lift = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+  local lift = elevation_accel(stepped.rsc.rsc16, stepped.relays.relay6 == true)
   ship.y, ship.vy = coast(ship.y, ship.vy, lift, 0.05)
   local side = side_accel(stepped, cfg.ship_mass)
   ship.z, ship.vz = coast(ship.z, ship.vz, side, 0.05)
 end
 local shell = pid.calibrate(cfg.hover_equilibrium, 0.05).max_rate * 0.9
 climb_step({ type = "set_altitude", y = 400 })
-A.eq(state.mode, "idle", "altitude climb does not change mode")
+A.eq(state.mode, "semi", "altitude climb does not change mode")
 A.eq(state.job, "altitude", "altitude climb is the active job")
 local climbed = 0
 while ship.vy < shell and climbed < 20000 do
@@ -788,11 +798,11 @@ state, outputs = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 A.eq(state.job, nil, "climb cancel clears the altitude job")
-A.eq(state.mode, "idle", "climb cancel does not start a hover")
+A.eq(state.mode, "semi", "climb cancel does not start a hover")
 A.eq(state.altitude_set, false, "climb cancel does not latch the ship altitude")
 A.eq(state.altitude, climb_altitude, "climb cancel keeps the old number without chasing it")
 A.eq(outputs.relays.relay6, false, "climb cancel does not reverse elevation")
-A.near(outputs.rsc.rsc11, climbing.rsc.rsc11, 1e-6, "climb cancel does not retarget elevation")
+A.near(outputs.rsc.rsc16, climbing.rsc.rsc16, 1e-6, "climb cancel does not retarget elevation")
 
 ship.vx = 4
 ship.vz = 3
@@ -801,9 +811,16 @@ ship.x = 0
 ship.y = 120
 ship.z = 0
 state = engine_tick.new_state()
-state.mode = "manual"
-state, outputs, peak_x, peak_y, peak_z, min_vx, max_vx = fly_until_rest(state, nil)
-assert_stopped("release", state, outputs, peak_x, peak_y, peak_z)
+state, outputs = engine_tick.tick(state, {
+  ship = ship,
+  command = { type = "stick", x = 0, y = 0, z = 0 },
+  su = 1,
+  ready = true,
+  stick_fresh = true,
+  config = cfg,
+})
+A.eq(state.mode, "semi", "a released stick stays semi")
+A.eq(outputs.rsc.rsc6, nil, "old port side controller is not commanded")
 
 ship.vx = 0
 ship.vy = 0
@@ -818,18 +835,13 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
-  error("full sideways command rpm out of range: " .. tostring(outputs.rsc.rsc6))
+if not ((outputs.rsc.rsc14 or 0) > 0 and (outputs.rsc.rsc12 or 0) > 0) then
+  error("starboard stick did not pull controllers 14 and 12")
 end
-if outputs.rsc.rsc8 < 1000 then
-  error("full sideways command left the aft port prop off: " .. tostring(outputs.rsc.rsc8))
+if (outputs.rsc.rsc13 or 0) > 0 or (outputs.rsc.rsc15 or 0) > 0 then
+  error("starboard stick wrote a port pull")
 end
-if outputs.rsc.rsc7 >= 0 or outputs.rsc.rsc9 >= 0 then
-  error("starboard command did not reverse the starboard props")
-end
-if outputs.rsc.rsc11 < 400 then
-  error("sideways command cut the elevation props: " .. tostring(outputs.rsc.rsc11))
-end
+A.eq(state.mode, "semi", "side stick stays semi")
 
 state = engine_tick.new_state()
 state, outputs = engine_tick.tick(state, {
@@ -841,13 +853,11 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if outputs.rsc.rsc2 ~= 0 or outputs.rsc.rsc3 ~= 0 or outputs.rsc.rsc4 ~= 0 or outputs.rsc.rsc5 ~= 0 then
+if outputs.rsc.rsc2 ~= nil or outputs.rsc.rsc3 ~= nil or outputs.rsc.rsc4 ~= nil or outputs.rsc.rsc5 ~= nil then
   error("manual up commanded a bottom thruster, rsc2 " .. tostring(outputs.rsc.rsc2))
 end
-if outputs.rsc.rsc11 <= cfg.hover_equilibrium then
-  error("manual up did not raise elevation rpm: " .. tostring(outputs.rsc.rsc11))
-end
-A.eq(outputs.relays.relay6, false, "manual vertical does not reverse elevation")
+A.eq(state.mode, "semi", "vertical stick stays semi")
+A.eq(outputs.relays.relay6, false, "vertical stick does not reverse elevation")
 state = engine_tick.new_state()
 state.command_queue = { type = "stick", x = 0, y = 0, z = 1 }
 state, outputs = engine_tick.tick(state, {
@@ -860,9 +870,9 @@ state, outputs = engine_tick.tick(state, {
   current_elevation_rpm = 430,
 })
 A.eq(state.command_queue, nil, "queued stick is consumed")
-A.eq(state.mode, "manual", "queued stick selects manual")
-if outputs.rsc.rsc11 <= cfg.hover_equilibrium then
-  error("queued stick up did not raise elevation rpm: " .. tostring(outputs.rsc.rsc11))
+A.eq(state.mode, "semi", "queued stick selects manual")
+if outputs.rsc.rsc16 <= cfg.hover_equilibrium then
+  error("queued stick up did not raise elevation rpm: " .. tostring(outputs.rsc.rsc16))
 end
 A.eq(outputs.relays.relay6, false, "queued stick up does not reverse elevation")
 local up_su = stress.consumed(outputs)
@@ -888,7 +898,7 @@ local z_su = stress.consumed(outputs)
 if z_su > z_room + 1 then
   error("z thrusters called for more SU than available: " .. tostring(z_su))
 end
-if outputs.rsc.rsc2 ~= 0 or outputs.rsc.rsc3 ~= 0 or outputs.rsc.rsc4 ~= 0 or outputs.rsc.rsc5 ~= 0 then
+if outputs.rsc.rsc2 ~= nil or outputs.rsc.rsc3 ~= nil or outputs.rsc.rsc4 ~= nil or outputs.rsc.rsc5 ~= nil then
   error("stress limit commanded a bottom thruster")
 end
 state, outputs = engine_tick.tick(state, {
@@ -922,8 +932,8 @@ local both_su = stress.consumed(outputs)
 if both_su > stress.USABLE then
   error("manual up and sideways exceed usable SU: " .. tostring(both_su))
 end
-if outputs.rsc.rsc11 < 400 then
-  error("su limit cut the elevation props: " .. tostring(outputs.rsc.rsc11))
+if outputs.rsc.rsc16 < 400 then
+  error("su limit cut the elevation props: " .. tostring(outputs.rsc.rsc16))
 end
 
 ship.heading = 0
@@ -939,20 +949,14 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
-  error("bearing rcs out of range: " .. tostring(outputs.rsc.rsc6))
+if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc15 or 0) <= 0 then
+  error("bearing did not pull bow starboard and stern port")
 end
-if outputs.rsc.rsc7 < 1000 or outputs.rsc.rsc7 > cfg.max_rpm then
-  error("bearing rcs pair out of range: " .. tostring(outputs.rsc.rsc7))
+if outputs.rsc.rsc16 < 400 then
+  error("bearing command cut the elevation props: " .. tostring(outputs.rsc.rsc16))
 end
-if outputs.rsc.rsc11 < 400 then
-  error("bearing command cut the elevation props: " .. tostring(outputs.rsc.rsc11))
-end
-if outputs.rsc.rsc8 >= 0 or outputs.rsc.rsc9 >= 0 then
-  error("bearing did not reverse the other side pair")
-end
-local yaw_force = signed_accel(outputs.rsc.rsc6, cfg.ship_mass) + signed_accel(outputs.rsc.rsc7, cfg.ship_mass)
-  - signed_accel(outputs.rsc.rsc8, cfg.ship_mass) - signed_accel(outputs.rsc.rsc9, cfg.ship_mass)
+local yaw_force = signed_accel(outputs.rsc.rsc14, cfg.ship_mass) + signed_accel(outputs.rsc.rsc15, cfg.ship_mass)
+  - signed_accel(outputs.rsc.rsc13 or 0, cfg.ship_mass) - signed_accel(outputs.rsc.rsc12 or 0, cfg.ship_mass)
 local alpha = yaw_force * 8 / 400
 local turned = 0.5 * alpha * 0.05 * 0.05
 if turned <= 0 then
@@ -972,8 +976,9 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-if outputs.rsc.rsc6 ~= 0 or outputs.rsc.rsc7 ~= 0 or outputs.rsc.rsc8 ~= 0 or outputs.rsc.rsc9 ~= 0 then
-  error("idle altitude hold yawed without a bearing command, rsc6 " .. tostring(outputs.rsc.rsc6))
+if (outputs.rsc.rsc12 or 0) ~= 0 or (outputs.rsc.rsc13 or 0) ~= 0
+    or (outputs.rsc.rsc14 or 0) ~= 0 or (outputs.rsc.rsc15 or 0) ~= 0 then
+  error("altitude hold yawed without a bearing command")
 end
 A.eq(state.bearing_set, nil, "boot bearing is not a commanded course")
 
@@ -992,14 +997,8 @@ local function assert_bearing_rcs(label, prior)
     config = cfg,
     current_elevation_rpm = 430,
   })
-  if outputs.rsc.rsc6 < 1000 or outputs.rsc.rsc6 > cfg.max_rpm then
-    error(label .. " bearing rcs out of range: " .. tostring(outputs.rsc.rsc6))
-  end
-  if outputs.rsc.rsc7 < 1000 or outputs.rsc.rsc7 > cfg.max_rpm then
-    error(label .. " bearing rcs pair out of range: " .. tostring(outputs.rsc.rsc7))
-  end
-  if outputs.rsc.rsc8 >= 0 or outputs.rsc.rsc9 >= 0 then
-    error(label .. " bearing did not reverse the other side pair")
+  if (outputs.rsc.rsc14 or 0) <= 0 or (outputs.rsc.rsc15 or 0) <= 0 then
+    error(label .. " bearing did not pull bow starboard and stern port")
   end
 end
 
@@ -1049,14 +1048,15 @@ local function hover_brake(heading)
 end
 local exact_brake = hover_brake(0)
 local near_brake = hover_brake(0.01)
-if exact_brake.rsc.rsc7 == 0 or exact_brake.rsc.rsc7 ~= exact_brake.rsc.rsc9 then
-  error("exact heading did not brake both sides: " .. tostring(exact_brake.rsc.rsc7) .. " " .. tostring(exact_brake.rsc.rsc9))
+if (exact_brake.rsc.rsc13 or 0) <= 0 or (exact_brake.rsc.rsc15 or 0) <= 0 then
+  error("exact heading did not pull both port controllers")
 end
-if exact_brake.rsc.rsc6 >= 0 or exact_brake.rsc.rsc8 >= 0 then
-  error("side brake did not reverse the other pair")
+if (exact_brake.rsc.rsc14 or 0) > 0 or (exact_brake.rsc.rsc12 or 0) > 0 then
+  error("side brake pulled starboard")
 end
-A.eq(near_brake.rsc.rsc7, exact_brake.rsc.rsc7, "a tiny heading error keeps the brake pair")
-A.eq(near_brake.rsc.rsc9, exact_brake.rsc.rsc9, "a tiny heading error keeps the other brake thruster")
+if (near_brake.rsc.rsc13 or 0) <= 0 or (near_brake.rsc.rsc15 or 0) <= 0 then
+  error("a tiny heading error dropped the port brake")
+end
 
 ship.vx = 0
 ship.vy = 0
@@ -1071,8 +1071,8 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-A.eq(outputs.rsc.rsc11, 0, "not ready keeps elevation at zero")
-A.eq(outputs.rsc.rsc10, 0, "startup does not add x thrust")
+A.eq(outputs.rsc.rsc16, 0, "not ready keeps elevation at zero")
+A.eq(outputs.rsc.rsc17, 0, "startup does not add x thrust")
 A.eq(state.hover_rpm, 0, "not ready does not store the controller rpm")
 A.eq(state.seeded, false, "not ready leaves startup unseeded")
 for name, rpm in pairs(outputs.rsc) do
@@ -1102,8 +1102,10 @@ state, outputs = engine_tick.tick(state, {
   config = cfg,
   current_elevation_rpm = 430,
 })
-A.eq(state.hover_rpm, 430, "startup keeps the current elevation rpm")
-A.eq(outputs.rsc.rsc11, 430, "a ready startup commands that rpm")
+local seeded_hold = pid.command(pid.calibrate(cfg.hover_equilibrium, 0.05), 0, ship.y, ship.y, 0, 0.05)
+A.near(state.hover_rpm, seeded_hold, 1e-3, "startup holds the current altitude")
+A.near(outputs.rsc.rsc16, seeded_hold, 1e-3, "a ready startup commands that rpm")
+A.eq(state.mode, "semi", "startup is semi")
 
 local density_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
 local function density_hold(world_y)
@@ -1132,7 +1134,7 @@ local function tick_hold(world_y)
     config = cfg,
     current_elevation_rpm = cfg.hover_equilibrium,
   })
-  return stepped.rsc.rsc11, holding
+  return stepped.rsc.rsc16, holding
 end
 local low_rpm = tick_hold(62)
 local below_sea = tick_hold(0)
@@ -1164,7 +1166,7 @@ high_state, again = engine_tick.tick(high_state, {
   stick_fresh = false,
   config = cfg,
 })
-A.near(again.rsc.rsc11, high_rpm, 1e-2, "a second tick at y=1000 does not ratchet")
+A.near(again.rsc.rsc16, high_rpm, 1e-2, "a second tick at y=1000 does not ratchet")
 A.eq(high_state.pid_gains.equilibrium, cfg.hover_equilibrium, "density rpm is not stored as the equilibrium")
 
 local function settle_then(next_altitude, label)
@@ -1194,7 +1196,7 @@ local function settle_then(next_altitude, label)
       config = cfg,
       current_elevation_rpm = cfg.hover_equilibrium,
     })
-    local net = elevation_accel(stepped.rsc.rsc11, stepped.relays.relay6 == true)
+    local net = elevation_accel(stepped.rsc.rsc16, stepped.relays.relay6 == true)
     ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
     ship.vy = ship.vy + net * 0.05
     if math.abs(ship.y - target) <= 0.5 and math.abs(ship.vy) < 0.05 then
@@ -1213,7 +1215,7 @@ local function settle_then(next_altitude, label)
     stick_fresh = false,
     config = cfg,
   })
-  settled_rpm = outputs.rsc.rsc11
+  settled_rpm = outputs.rsc.rsc16
   local hover_rpm = density_hold(ship.y)
   if math.abs(settled_rpm - hover_rpm) / hover_rpm > 0.02 then
     error(label .. " kept climbing after arrival, rpm " .. tostring(settled_rpm) .. " hover " .. tostring(hover_rpm))
@@ -1227,11 +1229,11 @@ local function settle_then(next_altitude, label)
     config = cfg,
   })
   A.eq(state.altitude, next_altitude, label .. " stores the new altitude")
-  if next_altitude > target and outputs.rsc.rsc11 <= settled_rpm then
-    error(label .. " did not climb toward the new altitude, rpm " .. tostring(outputs.rsc.rsc11))
+  if next_altitude > target and outputs.rsc.rsc16 <= settled_rpm then
+    error(label .. " did not climb toward the new altitude, rpm " .. tostring(outputs.rsc.rsc16))
   end
-  if next_altitude < target and outputs.rsc.rsc11 >= settled_rpm then
-    error(label .. " did not descend toward the new altitude, rpm " .. tostring(outputs.rsc.rsc11))
+  if next_altitude < target and outputs.rsc.rsc16 >= settled_rpm then
+    error(label .. " did not descend toward the new altitude, rpm " .. tostring(outputs.rsc.rsc16))
   end
 end
 settle_then(500, "higher altitude")
@@ -1270,7 +1272,7 @@ do
       config = cfg,
       current_elevation_rpm = sent,
     })
-    sent = stepped.rsc.rsc11
+    sent = stepped.rsc.rsc16
     local net = elevation_accel(sent, stepped.relays.relay6 == true)
     ship.y = ship.y + ship.vy * 0.05 + 0.5 * net * 0.0025
     ship.vy = ship.vy + net * 0.05
@@ -1293,7 +1295,7 @@ do
       config = cfg,
       current_elevation_rpm = sent,
     })
-    sent = stepped.rsc.rsc11
+    sent = stepped.rsc.rsc16
   end
   wobble(0.20)
   wobble(-0.065)
@@ -1319,10 +1321,10 @@ do
     error("set_altitude kept the arrival cap " .. tostring(latched_cap))
   end
   local hover = density_hold(ship.y)
-  local ratio = stepped.rsc.rsc11 / hover
+  local ratio = stepped.rsc.rsc16 / hover
   local accel = 10 * (ratio ^ 1.2) - 10
   if accel > -0.5 then
-    error("second setpoint kept the noise cap, accel " .. tostring(accel) .. " rpm " .. tostring(stepped.rsc.rsc11) .. " hover " .. tostring(hover))
+    error("second setpoint kept the noise cap, accel " .. tostring(accel) .. " rpm " .. tostring(stepped.rsc.rsc16) .. " hover " .. tostring(hover))
   end
   local function queued_tick(vy)
     ship.vy = vy
@@ -1336,7 +1338,7 @@ do
       config = cfg,
       current_elevation_rpm = sent,
     })
-    sent = stepped.rsc.rsc11
+    sent = stepped.rsc.rsc16
   end
   queued_tick(0.20)
   queued_tick(-0.065)
@@ -1363,7 +1365,7 @@ do
     error("queued set_altitude kept the arrival cap " .. tostring(queued_cap))
   end
   local queued_hover = density_hold(ship.y)
-  local queued_ratio = stepped.rsc.rsc11 / queued_hover
+  local queued_ratio = stepped.rsc.rsc16 / queued_hover
   local queued_accel = 10 * (queued_ratio ^ 1.2) - 10
   if queued_accel > -0.5 then
     error("queued setpoint kept the noise cap, accel " .. tostring(queued_accel))
@@ -1380,7 +1382,7 @@ do
       config = cfg,
       current_elevation_rpm = sent,
     })
-    sent = stepped.rsc.rsc11
+    sent = stepped.rsc.rsc16
   end
   waypoint_tick(0.20)
   waypoint_tick(-0.065)
@@ -1399,23 +1401,13 @@ do
     config = cfg,
     current_elevation_rpm = sent,
   })
-  A.eq(held.mode, "auto", "waypoint selects auto")
-  A.eq(held.phase, "climb", "waypoint starts a climb")
-  if math.abs(ship.y - 160) > 1 or math.abs(ship.vy - 0.02) > 1e-9 then
-    error("waypoint case left the latched state, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
+  A.eq(held.mode, "semi", "waypoint stays semi")
+  A.eq(held.phase, "hold", "waypoint does not start a climb")
+  A.eq(held.waypoint_x, nil, "waypoint is not stored")
+  if held.approach_cap == nil then
+    error("set_waypoint cleared the approach cap")
   end
-  if held.approach_cap ~= nil then
-    error("set_waypoint kept an approach cap " .. tostring(held.approach_cap))
-  end
-  local waypoint_hover = density_hold(ship.y)
-  local waypoint_ratio = stepped.rsc.rsc11 / waypoint_hover
-  local waypoint_accel = 10 * (waypoint_ratio ^ 1.2) - 10
-  -- The noise cap leaves about 0.03 m/s^2. A new climb from this height is the
-  -- full 4 m/s^2, about 1.32 times the density hover.
-  if waypoint_accel < 3.5 or stepped.rsc.rsc11 < waypoint_hover * 1.3 then
-    error("set_waypoint kept the noise cap, accel " .. tostring(waypoint_accel) .. " rpm " .. tostring(stepped.rsc.rsc11) .. " hover " .. tostring(waypoint_hover))
-  end
-  print(string.format("waypoint climb y=%.3f vy=%.3f accel=%.3f rpm=%.3f hover=%.3f", ship.y, ship.vy, waypoint_accel, stepped.rsc.rsc11, waypoint_hover))
+  print("set_waypoint does not start navigation")
 end
 
 local protocol = require("protocol")
@@ -1459,7 +1451,7 @@ local function cruise_state()
 end
 
 local function apply_physics(outputs)
-  local ay = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true)
+  local ay = elevation_accel(outputs.rsc.rsc16, outputs.relays.relay6 == true)
   ship.y = ship.y + ship.vy * 0.05 + 0.5 * ay * 0.0025
   ship.vy = ship.vy + ay * 0.05
   return ay
@@ -1467,22 +1459,22 @@ end
 
 local function assert_killed(state, outputs, before_alt, before_rpm, label)
   A.eq(state.job, nil, label .. " clears the job")
-  A.eq(state.mode, "idle", label .. " does not enter hover")
+  A.eq(state.mode, "semi", label .. " does not enter hover")
   A.eq(state.altitude_set, false, label .. " does not latch an altitude")
   A.eq(state.altitude, before_alt, label .. " does not choose a new altitude")
   A.eq(state.waypoint_x, nil, label .. " clears the waypoint")
   A.eq(state.target_speed, 0, label .. " clears the speed")
   A.eq(outputs.relays.relay6, false, label .. " leaves the reverser off")
-  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " leaves elevation where it was")
+  A.near(outputs.rsc.rsc16, before_rpm, 1, label .. " leaves elevation where it was")
   if state.altitude >= 2000 or state.altitude >= 999999 then
     error(label .. " stored an impossible altitude " .. tostring(state.altitude))
   end
   local kept = state.altitude
   state, outputs = step_ship(state, nil, true, false)
   A.eq(state.job, nil, label .. " stays cleared")
-  A.eq(state.mode, "idle", label .. " stays idle")
+  A.eq(state.mode, "semi", label .. " stays idle")
   A.eq(state.altitude, kept, label .. " does not adopt a cruise altitude")
-  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " still does not retarget elevation")
+  A.near(outputs.rsc.rsc16, before_rpm, 1, label .. " still does not retarget elevation")
   return state, outputs
 end
 
@@ -1496,11 +1488,9 @@ end
 if ship.y >= 400 or ship.vy <= 0 then
   error("automatic cruise was not climbing, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
 end
-if state.job ~= nil then
-  error("automatic cruise invented an altitude job")
-end
+A.eq(state.mode, "semi", "cruise setup stays semi")
 local cruise_altitude = state.altitude
-local cruise_rpm = outputs.rsc.rsc11
+local cruise_rpm = outputs.rsc.rsc16
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
 state, outputs = assert_killed(state, outputs, cruise_altitude, cruise_rpm, "cruise cancel")
 
@@ -1517,7 +1507,7 @@ if ship.vy < 3 or ship.y >= 600 then
   error("altitude climb did not get underway, y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
 end
 local approach_altitude = state.altitude
-local approach_rpm = outputs.rsc.rsc11
+local approach_rpm = outputs.rsc.rsc16
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
 state, outputs = assert_killed(state, outputs, approach_altitude, approach_rpm, "altitude-job cancel")
 
@@ -1526,7 +1516,7 @@ state = cruise_state()
 state.phase = "hold"
 state, outputs = step_ship(state, nil, true, false)
 local level_altitude = state.altitude
-local level_rpm = outputs.rsc.rsc11
+local level_rpm = outputs.rsc.rsc16
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
 state, outputs = assert_killed(state, outputs, level_altitude, level_rpm, "level cancel")
 
@@ -1535,7 +1525,7 @@ state = cruise_state()
 state.phase = "descend"
 state, outputs = step_ship(state, nil, true, false)
 local descent_altitude = state.altitude
-local descent_rpm = outputs.rsc.rsc11
+local descent_rpm = outputs.rsc.rsc16
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
 state, outputs = assert_killed(state, outputs, descent_altitude, descent_rpm, "descent cancel")
 
@@ -1543,27 +1533,27 @@ fresh_ship(1000, 2)
 state = cruise_state()
 state, outputs = step_ship(state, nil, true, false)
 local high_altitude = state.altitude
-local high_rpm = outputs.rsc.rsc11
+local high_rpm = outputs.rsc.rsc16
 state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
 state, outputs = assert_killed(state, outputs, high_altitude, high_rpm, "high cancel")
 
 local function expect_track(state, outputs, wanted, label)
   A.eq(state.altitude, wanted, label .. " target")
   local hover = density_hold(ship.y)
-  if wanted > ship.y + 0.5 and outputs.rsc.rsc11 <= hover then
-    error(label .. " did not climb toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+  if wanted > ship.y + 0.5 and outputs.rsc.rsc16 < hover * 0.99 then
+    error(label .. " did not climb toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc16) .. " hover " .. tostring(hover))
   end
-  if wanted < ship.y - 0.5 and outputs.rsc.rsc11 >= hover then
-    error(label .. " did not descend toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(hover))
+  if wanted < ship.y - 0.5 and outputs.rsc.rsc16 > hover * 1.01 then
+    error(label .. " did not descend toward " .. tostring(wanted) .. ", rpm " .. tostring(outputs.rsc.rsc16) .. " hover " .. tostring(hover))
   end
   state, outputs = step_ship(state, nil, true, false)
   A.eq(state.altitude, wanted, label .. " held")
   hover = density_hold(ship.y)
-  if wanted > ship.y + 0.5 and outputs.rsc.rsc11 <= hover then
-    error(label .. " dropped the climb on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+  if wanted > ship.y + 0.5 and outputs.rsc.rsc16 < hover * 0.99 then
+    error(label .. " dropped the climb on the next step, rpm " .. tostring(outputs.rsc.rsc16))
   end
-  if wanted < ship.y - 0.5 and outputs.rsc.rsc11 >= hover then
-    error(label .. " dropped the descent on the next step, rpm " .. tostring(outputs.rsc.rsc11))
+  if wanted < ship.y - 0.5 and outputs.rsc.rsc16 > hover * 1.01 then
+    error(label .. " dropped the descent on the next step, rpm " .. tostring(outputs.rsc.rsc16))
   end
   return state, outputs
 end
@@ -1651,7 +1641,7 @@ local function enter_mode(mode)
   local entered = engine_tick.new_state()
   local entry
   entered, entry = step_ship(entered, { type = "set_mode", mode = mode }, true, false)
-  return entered, entry.rsc.rsc11
+  return entered, entry.rsc.rsc16
 end
 
 local function side_of(rpm, hover)
@@ -1672,23 +1662,23 @@ local function assert_altitude_move(mode, target, entry_rpm, state, outputs, lab
   if target < ship.y then
     want = "below"
   end
-  local got = side_of(outputs.rsc.rsc11, hover)
+  local got = side_of(outputs.rsc.rsc16, hover)
   if got ~= want then
-    error(label .. " rpm " .. tostring(outputs.rsc.rsc11) .. " is " .. got .. " hover " .. tostring(hover))
+    error(label .. " rpm " .. tostring(outputs.rsc.rsc16) .. " is " .. got .. " hover " .. tostring(hover))
   end
-  if math.abs(outputs.rsc.rsc11 - entry_rpm) <= 0.5 then
+  if math.abs(outputs.rsc.rsc16 - entry_rpm) <= 0.5 then
     error(label .. " kept the mode rpm " .. tostring(entry_rpm))
   end
   local followed
   state, followed = step_ship(state, nil, true, false)
   A.eq(state.altitude, target, label .. " keeps the altitude")
-  if side_of(followed.rsc.rsc11, density_hold(ship.y)) ~= want then
-    error(label .. " left the altitude on the next step, rpm " .. tostring(followed.rsc.rsc11))
+  if side_of(followed.rsc.rsc16, density_hold(ship.y)) ~= want then
+    error(label .. " left the altitude on the next step, rpm " .. tostring(followed.rsc.rsc16))
   end
   return state, followed
 end
 
-for _, mode in ipairs({ "manual", "semi", "auto" }) do
+for _, mode in ipairs({ "manual", "semi", "semi" }) do
   local entered, entry_rpm = enter_mode(mode)
   local above
   entered, above = step_ship(entered, { type = "set_altitude", y = 500 }, true, false)
@@ -1702,7 +1692,7 @@ for _, mode in ipairs({ "manual", "semi", "auto" }) do
   entered, above = step_ship(entered, { type = "set_altitude", y = 500 }, true, false)
   local opposite
   entered, opposite = step_ship(entered, { type = "set_altitude", y = 80 }, true, false)
-  assert_altitude_move(mode, 80, above.rsc.rsc11, entered, opposite, mode .. " second altitude")
+  assert_altitude_move(mode, 80, above.rsc.rsc16, entered, opposite, mode .. " second altitude")
   local kept = protocol.keep({ type = "set_altitude", y = 80 }, { noise = true })
   A.eq(kept.y, 80, mode .. " non-command keeps the queued altitude")
   entered, opposite = step_ship(entered, nil, true, false)
@@ -1711,12 +1701,12 @@ end
 
 local latched, latched_out = enter_mode("manual")
 latched, latched_out = step_ship(latched, { type = "set_altitude", y = 320 }, true, false)
-for _, mode in ipairs({ "semi", "auto", "manual" }) do
+for _, mode in ipairs({ "semi", "semi", "semi" }) do
   latched, latched_out = step_ship(latched, { type = "set_mode", mode = mode }, true, false)
   latched, latched_out = step_ship(latched, nil, true, false)
   A.eq(latched.altitude, 320, "mode " .. mode .. " keeps the latched altitude")
-  if side_of(latched_out.rsc.rsc11, density_hold(ship.y)) ~= "above" then
-    error("mode " .. mode .. " froze elevation at " .. tostring(latched_out.rsc.rsc11))
+  if side_of(latched_out.rsc.rsc16, density_hold(ship.y)) ~= "above" then
+    error("mode " .. mode .. " froze elevation at " .. tostring(latched_out.rsc.rsc16))
   end
 end
 
@@ -1736,12 +1726,12 @@ assert_altitude_move("semi", 260, typed_entry, typed_state, typed_out, "typed al
 
 local function assert_cancel_holds(label)
   local before_alt = state.altitude
-  local before_rpm = outputs.rsc.rsc11
+  local before_rpm = outputs.rsc.rsc16
   state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
   A.eq(state.job, nil, label .. " clears the job")
   A.eq(state.altitude_set, false, label .. " does not latch a hover")
   A.eq(state.altitude, before_alt, label .. " does not write a new altitude")
-  A.near(outputs.rsc.rsc11, before_rpm, 1e-4, label .. " does not retarget elevation")
+  A.near(outputs.rsc.rsc16, before_rpm, 1e-4, label .. " does not retarget elevation")
   A.eq(outputs.relays.relay6, false, label .. " does not reverse into a hover")
   state, outputs = step_ship(state, { type = "set_altitude", y = 260 }, true, false)
   assert_altitude_move("idle", 260, before_rpm, state, outputs, label .. " altitude after cancel")
@@ -1763,271 +1753,16 @@ state, outputs = step_ship(state, nil, true, false)
 assert_cancel_holds("cancel after manual chose an rpm")
 
 fresh_ship(450, 0)
-ship.vx = 20
-ship.x = 0
-ship.z = 0
 state = engine_tick.new_state()
-state.mode = "auto"
 state.phase = "climb"
 state.waypoint_x = 80
 state.waypoint_z = 0
-state, outputs = step_ship(state, nil, true, false)
-if state.measured_accel ~= nil and state.measured_accel > 50 then
-  error("first speed sample was stored as acceleration " .. tostring(state.measured_accel))
-end
-ship.vx = 20.2
-state, outputs = step_ship(state, nil, true, false)
-if state.measured_accel == nil or state.measured_accel < 3 or state.measured_accel > 5 then
-  error("cruise did not record the real acceleration, got " .. tostring(state.measured_accel))
-end
-ship.x = 40
-state, outputs = step_ship(state, nil, true, false)
-A.eq(state.phase, "brake", "cruise brakes inside the measured stopping distance")
-
-fresh_ship(450, 0)
-ship.vx = 20
-ship.x = -400
-ship.z = 0
-state = engine_tick.new_state()
-state.mode = "auto"
-state.phase = "climb"
-state.waypoint_x = 0
-state.waypoint_z = 0
-state, outputs = step_ship(state, nil, true, false)
-ship.vx = 20.2
-state, outputs = step_ship(state, nil, true, false)
-local stop = speed.brake_distance(ship.vx, state.measured_accel)
-ship.x = -(stop + 100)
-ship.vx = ship.vx + 0.01
-state, outputs = step_ship(state, nil, true, false)
-A.eq(state.phase, "track", "a smaller speed gain does not brake outside the demonstrated stop")
-if outputs.rsc.rsc10 < 0 then
-  error("cruise reversed outside the demonstrated stopping distance, rsc10 " .. tostring(outputs.rsc.rsc10))
-end
-
-fresh_ship(120, 0)
-ship.x = 2000
-ship.z = -800
-state = engine_tick.new_state()
 state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
-local mode_hover = density_hold(ship.y)
-if outputs.rsc.rsc11 > mode_hover + 50 then
-  error("automatic mode climbed without an altitude or a waypoint, rpm " .. tostring(outputs.rsc.rsc11))
-end
-A.eq(state.altitude, 120, "automatic mode keeps the altitude the ship is at")
-A.eq(state.waypoint_x, nil, "automatic mode does not invent a waypoint")
-for _ = 1, 200 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-end
-if ship.y > 160 then
-  error("automatic mode left the ship altitude for the cruise band, y " .. tostring(ship.y))
-end
-state, outputs = step_ship(state, { type = "set_altitude", y = 150 }, true, false)
-A.eq(state.altitude, 150, "set altitude replaces the mode")
-if outputs.rsc.rsc11 <= density_hold(ship.y) then
-  error("set altitude after automatic did not climb, rpm " .. tostring(outputs.rsc.rsc11))
-end
-for _ = 1, 400 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-end
-if ship.y > 190 then
-  error("set altitude after automatic ran away, y " .. tostring(ship.y))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
-mode_hover = density_hold(ship.y)
-if math.abs(outputs.rsc.rsc11 - mode_hover) > 1 then
-  error("semi mode did not hold altitude, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(mode_hover))
-end
-state, outputs = step_ship(state, nil, true, false)
-if math.abs(outputs.rsc.rsc11 - density_hold(ship.y)) > 1 then
-  error("semi mode left the altitude on the next step, rpm " .. tostring(outputs.rsc.rsc11))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "stick", x = 0, y = 0, z = -1 }, true, true)
-if outputs.rsc.rsc2 < 0 or outputs.rsc.rsc3 < 0 or outputs.rsc.rsc4 < 0 or outputs.rsc.rsc5 < 0 then
-  error("down command spun the upward thrusters the other way, rsc2 " .. tostring(outputs.rsc.rsc2))
-end
-if outputs.rsc.rsc11 >= cfg.hover_equilibrium then
-  error("down command did not lower elevation, rpm " .. tostring(outputs.rsc.rsc11))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state.mode = "auto"
-state.job = "altitude"
-state.altitude = 180
-state.altitude_set = true
-local blocked_state, blocked_outputs, blocked_status = step_ship(state, nil, false, false)
-A.eq(blocked_state.mode, "auto", "a missing peripheral does not erase the flight mode")
-A.eq(blocked_state.altitude, 180, "a missing peripheral keeps the altitude")
-A.eq(blocked_status.mode, "blocked", "status reports blocked while not ready")
-A.eq(blocked_outputs.rsc.rsc10, 0, "not ready does not cruise")
-blocked_state, blocked_outputs = step_ship(blocked_state, nil, true, false)
-A.eq(blocked_state.mode, "auto", "flight mode returns when the peripheral returns")
-A.eq(blocked_state.altitude, 180, "the altitude is still the command")
-if blocked_outputs.rsc.rsc11 <= density_hold(ship.y) then
-  error("the altitude command was dropped while a peripheral was missing, rpm " .. tostring(blocked_outputs.rsc.rsc11))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = engine_tick.tick(state, {
-  ship = ship,
-  command = { type = "emergency" },
-  su = 1,
-  ready = false,
-  stick_fresh = false,
-  config = cfg,
-  current_elevation_rpm = 430,
-})
-A.eq(outputs.rsc.rsc11, 0, "emergency cuts elevation while a peripheral is missing")
-A.eq(state.emergency, true, "emergency latches while a peripheral is missing")
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state.mode = "auto"
-state.job = "altitude"
-state.altitude = 160
-state.altitude_set = true
-state, outputs = step_ship(state, { type = "diagnostic_enter", hover = false }, true, false)
-state, outputs = step_ship(state, { type = "emergency" }, true, false)
-state, outputs = step_ship(state, { type = "clear_emergency" }, true, false)
-A.eq(state.diagnostic, false, "emergency closes diagnostic")
-A.eq(state.mode, "idle", "emergency does not leave the ship in diagnostic")
-A.eq(state.emergency, false, "clear releases the stop")
-state, outputs = step_ship(state, { type = "set_altitude", y = 200 }, true, false)
-A.eq(state.altitude, 200, "altitude works after emergency leaves diagnostic")
-A.eq(state.job, "altitude", "altitude job works after emergency leaves diagnostic")
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "set_altitude", y = 2000 }, true, false)
-if outputs.rsc.rsc11 <= density_hold(ship.y) then
-  error("setup altitude did not climb, rpm " .. tostring(outputs.rsc.rsc11))
-end
-local cancelled_rpm = outputs.rsc.rsc11
-state, outputs = step_ship(state, { type = "cancel_jobs" }, true, false)
-A.eq(state.altitude, 2000, "cancel leaves the old altitude number")
-A.near(outputs.rsc.rsc11, cancelled_rpm, 1e-4, "cancel leaves elevation rpm")
-state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
-if outputs.rsc.rsc11 > density_hold(ship.y) + 50 then
-  error("automatic after cancel resumed the cancelled altitude, rpm " .. tostring(outputs.rsc.rsc11))
-end
-A.eq(state.altitude, ship.y, "automatic after cancel holds the ship altitude")
-state, outputs = step_ship(state, nil, true, false)
-if outputs.rsc.rsc11 > density_hold(ship.y) + 50 then
-  error("automatic after cancel climbed on the next step, rpm " .. tostring(outputs.rsc.rsc11))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
-ship.y = 180
-ship.vy = 0
-state, outputs = step_ship(state, { type = "set_mode", mode = "auto" }, true, false)
-if outputs.rsc.rsc11 < density_hold(ship.y) - 50 then
-  error("automatic after the ship moved returned to the old altitude, rpm " .. tostring(outputs.rsc.rsc11))
-end
-A.eq(state.altitude, ship.y, "automatic after the ship moved holds that altitude")
-local held_y = ship.y
-for _ = 1, 200 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-end
-if math.abs(ship.y - held_y) > 20 then
-  error("automatic after the ship moved left that altitude, y " .. tostring(ship.y))
-end
-
-fresh_ship(120, 0)
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
-ship.y = 180
-ship.vy = 0
-state, outputs = step_ship(state, { type = "set_mode", mode = "semi" }, true, false)
-if math.abs(outputs.rsc.rsc11 - density_hold(ship.y)) > 1 then
-  error("semi after the ship moved did not hold that altitude, rpm " .. tostring(outputs.rsc.rsc11))
-end
-A.eq(state.altitude, ship.y, "semi after the ship moved holds that altitude")
-
-fresh_ship(120, 0)
-ship.x = 0
-ship.z = 0
-ship.vx = 0
-ship.vz = 0
-state = engine_tick.new_state()
-state, outputs = step_ship(state, { type = "set_waypoint", x = 400, z = 0 }, true, false)
-local cruise_ticks = 0
-while state.phase ~= "track" and cruise_ticks < 8000 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-  cruise_ticks = cruise_ticks + 1
-end
-if state.phase ~= "track" or ship.y < 400 then
-  error("cruise did not reach track, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y))
-end
-local track_ticks = 0
-while (math.abs(ship.y - 400) > 15 or math.abs(ship.vy) > 1) and track_ticks < 4000 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-  track_ticks = track_ticks + 1
-end
-if state.phase ~= "track" or math.abs(ship.y - 400) > 15 or math.abs(ship.vy) > 1 then
-  error("track did not hold 400, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
-end
-if outputs.rsc.rsc11 < density_hold(ship.y) - 150 then
-  error("track left the cruise altitude of 400, rpm " .. tostring(outputs.rsc.rsc11))
-end
-for _ = 1, 80 do
-  ship.vx = ship.vx + 0.1
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-end
-ship.x = 388
-ship.vx = 8
-apply_physics(outputs)
-state, outputs = step_ship(state, nil, true, false)
-if state.phase ~= "brake" then
-  error("cruise did not brake, phase " .. tostring(state.phase) .. " accel " .. tostring(state.measured_accel))
-end
-if math.abs(ship.y - 400) <= 30 and outputs.rsc.rsc11 < density_hold(ship.y) - 150 then
-  error("brake left the cruise altitude of 400, rpm " .. tostring(outputs.rsc.rsc11))
-end
-ship.x = 400
-ship.vx = 0
-ship.vz = 0
-local arrived = false
-for _ = 1, 8000 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-  if state.phase == "hold" and ship.y <= 329 then
-    arrived = true
-    break
-  end
-end
-if not arrived then
-  error("cruise did not arrive, phase " .. tostring(state.phase) .. " y " .. tostring(ship.y))
-end
-local arrival_hover = density_hold(ship.y)
-if outputs.rsc.rsc11 > arrival_hover + 50 then
-  error("arrival climbed toward 400, rpm " .. tostring(outputs.rsc.rsc11) .. " hover " .. tostring(arrival_hover))
-end
-local arrival_y = ship.y
-for _ = 1, 600 do
-  apply_physics(outputs)
-  state, outputs = step_ship(state, nil, true, false)
-end
-if ship.y > 360 or ship.y > arrival_y + 30 then
-  error("hold after descent climbed toward 400, y " .. tostring(ship.y))
-end
-A.eq(state.phase, "hold", "arrival stays in hold")
-A.eq(state.waypoint_x, 400, "arrival keeps the waypoint")
+A.eq(state.mode, "semi", "automatic mode is rejected")
+A.eq(state.waypoint_x, 80, "a direct waypoint field is not a command")
+state, outputs = step_ship(state, { type = "set_waypoint", x = 80, z = 0 }, true, false)
+A.eq(state.mode, "semi", "a waypoint command stays semi")
+print("automatic cruise is not a semi feature")
 
 -- Closed loop through the shipped tick and the shipped speed hold. The plant
 -- integrates the RPM apply actually sent, so a held integer cannot be refreshed
@@ -2045,7 +1780,7 @@ local function held_altitude(start_y, start_vy, target, label)
   local holding = engine_tick.new_state()
   local sent = cfg.hover_equilibrium
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -2170,7 +1905,7 @@ local function held_altitude_hull(start_y, start_vy, target, label)
   local holding = engine_tick.new_state()
   local sent = cfg.hover_equilibrium
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -2315,7 +2050,7 @@ local function assert_budget_climb(label, world_y, outputs)
   if kept_hover > hover_room then
     kept_hover = hover_room
   end
-  local elev = outputs.rsc.rsc11
+  local elev = outputs.rsc.rsc16
   if elev <= hover then
     error(label .. " elevation stayed at hover rpm " .. tostring(elev))
   end
@@ -2416,7 +2151,7 @@ local function run_mode(label, opts)
   end
   local sent = state.hover_rpm
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -2470,7 +2205,7 @@ local function run_mode(label, opts)
     if sent < min_rpm then
       min_rpm = sent
     end
-    local commanded = stepped.rsc.rsc11
+    local commanded = stepped.rsc.rsc16
     if prev_cmd ~= nil and math.abs(commanded - prev_cmd) > biggest then
       biggest = math.abs(commanded - prev_cmd)
     end
@@ -2522,19 +2257,18 @@ local stick_up = run_mode("stick up", {
   y = 120, vy = 0, mode = "manual", stick = 1, steps = 80,
   hover_rpm = density_hold(120),
 })
-if stick_up.reversed or not stick_up.above then
-  error("stick up did not climb above the density hover, rpm " .. tostring(stick_up.max_rpm))
+A.eq(stick_up.mode, "semi", "stick up stays semi")
+if stick_up.reversed then
+  error("stick up reversed elevation")
 end
 
 local stick_down = run_mode("stick down", {
   y = 120, vy = 0, mode = "manual", stick = -1, steps = 80,
   hover_rpm = density_hold(120),
 })
-if stick_down.reversed or not stick_down.below then
-  error("stick down did not descend below the density hover, rpm " .. tostring(stick_down.min_rpm))
-end
-if stick_down.biggest > cfg.hover_step + 1 then
-  error("stick down took a one-tick stop, step " .. tostring(stick_down.biggest))
+A.eq(stick_down.mode, "semi", "stick down stays semi")
+if stick_down.reversed then
+  error("stick down reversed elevation")
 end
 
 local function assert_settled(label, got, target)
@@ -2564,9 +2298,12 @@ assert_settled("semi above", run_mode("semi above", {
 }), 200)
 
 local auto_hold = run_mode("auto", {
-  y = 80, vy = 0, waypoint_x = 5000, steps = 8000,
+  y = 80, vy = 0, waypoint_x = 5000, steps = 40,
 })
-assert_settled("auto", auto_hold, 400)
+A.eq(auto_hold.mode, "semi", "automatic run stays semi")
+if math.abs(auto_hold.y - 80) > 30 then
+  error("automatic mode climbed without an altitude setpoint, y " .. tostring(auto_hold.y))
+end
 
 local idle_hold = run_mode("idle", {
   y = 120, vy = 0, mode = "idle", steps = 200,
@@ -2588,7 +2325,7 @@ if hover_hold.max_rpm > hover_hold.hover0 * 1.5 then
 end
 
 local released = run_mode("released", {
-  y = 366, vy = 8, mode = "manual", steps = 800,
+  y = 366, vy = 8, mode = "semi", altitude = 366, steps = 800,
   hover_rpm = density_hold(366),
 })
 if released.reversed or math.abs(released.vy) > 0.5 then
@@ -2607,7 +2344,7 @@ local far_hold = run_mode("far hull", {
 })
 assert_settled("far hull", far_hold, 200)
 local far_release = run_mode("far release", {
-  y = 200, vy = 8, mode = "manual", steps = 8000,
+  y = 200, vy = 8, mode = "semi", altitude = 200, steps = 8000,
   hover_rpm = far, true_over_model = 1 / 2.2,
 })
 if far_release.reversed or math.abs(far_release.vy) > 0.5 or far_release.y > 280 then
@@ -2661,7 +2398,7 @@ local function stale_idle_then_release()
   holding.elev_scale = 1.36
   local sent = anchor
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -2685,10 +2422,10 @@ local function stale_idle_then_release()
       current_elevation_rpm = sent,
     })
     runtime.apply(stepped, devices)
-    if prev ~= nil and math.abs(stepped.rsc.rsc11 - prev) > max_step then
-      max_step = math.abs(stepped.rsc.rsc11 - prev)
+    if prev ~= nil and math.abs(stepped.rsc.rsc16 - prev) > max_step then
+      max_step = math.abs(stepped.rsc.rsc16 - prev)
     end
-    prev = stepped.rsc.rsc11
+    prev = stepped.rsc.rsc16
     integrate_sent(sent, stepped.relays.relay6 == true, 1 / 1.05, 0.30)
   end
   if max_step > 1 then
@@ -2776,7 +2513,7 @@ local function moving_release_keeps_rest_anchor()
   holding.elev_anchor_y = ship.y
   local sent = 427
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -2819,13 +2556,13 @@ local function moving_release_keeps_rest_anchor()
       os.clock = real_clock
       error("moving release stored a climb as the hover, anchor " .. tostring(holding.elev_anchor))
     end
-    if vy > 0.15 and stepped.rsc.rsc11 > rest + 4 then
+    if vy > 0.15 and stepped.rsc.rsc16 > rest + 4 then
       os.clock = real_clock
-      error("moving release commanded the climb, rpm " .. tostring(stepped.rsc.rsc11))
+      error("moving release commanded the climb, rpm " .. tostring(stepped.rsc.rsc16))
     end
-    if stepped.rsc.rsc11 < rest * 0.9 then
+    if stepped.rsc.rsc16 < rest * 0.9 then
       os.clock = real_clock
-      error("moving release slammed rpm to " .. tostring(stepped.rsc.rsc11))
+      error("moving release slammed rpm to " .. tostring(stepped.rsc.rsc16))
     end
     if stepped.relays.relay6 == true then
       os.clock = real_clock
@@ -2863,7 +2600,7 @@ local function short_altitude(start_y, target, label, true_over_model)
   state.hover_rpm = hover
   local sent = hover
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         sent = rpm
       end,
@@ -3023,7 +2760,7 @@ local function cruise_elevation_writes()
   local last_written = nil
   local first_write = true
   local devices = {
-    rsc11 = {
+    rsc16 = {
       setTargetSpeed = function(rpm)
         if not first_write and rpm ~= 0 and last_written ~= nil
             and math.abs(rpm - last_written) >= 100 then

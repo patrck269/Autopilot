@@ -3,7 +3,7 @@ local number = require("numeric")
 local M = {}
 
 local RSC, RELAY = {}, {}
-for i = 2, 11 do
+for _, i in ipairs({ 12, 13, 14, 15, 16, 17 }) do
   RSC["rsc" .. i] = true
 end
 for _, i in ipairs({ 2, 3, 5, 6, 7, 8, 9, 10 }) do
@@ -61,7 +61,7 @@ function M.validate(msg)
   local kind = msg.type
   if kind == "stick" and bounded(msg.x, 1) and bounded(msg.y, 1) and bounded(msg.z, 1) then
     return copy_stick(msg)
-  elseif kind == "set_mode" and (msg.mode == "manual" or msg.mode == "semi" or msg.mode == "auto") then
+  elseif kind == "set_mode" and msg.mode == "semi" then
     return { type = kind, mode = msg.mode }
   elseif kind == "set_altitude" and bounded(msg.y, 30000000) then
     return { type = kind, y = msg.y }
@@ -69,10 +69,6 @@ function M.validate(msg)
     return { type = kind, bearing = number.wrap(msg.bearing) }
   elseif kind == "set_speed" and bounded(msg.speed, 1000000) then
     return { type = kind, speed = msg.speed }
-  elseif (kind == "set_waypoint" or kind == "return_to_user") and bounded(msg.x, 30000000) and bounded(msg.z, 30000000) then
-    return { type = kind, x = msg.x, z = msg.z }
-  elseif kind == "set_profile" and (msg.profile == "cruise" or msg.profile == "warp") then
-    return { type = kind, profile = msg.profile }
   elseif kind == "emergency" or kind == "clear_emergency" or kind == "diagnostic_exit" or kind == "cancel_jobs" then
     return { type = kind }
   elseif kind == "diagnostic_enter" and type(msg.hover) == "boolean" then

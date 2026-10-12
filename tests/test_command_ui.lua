@@ -48,6 +48,11 @@ local function press_mode(name, mode)
   local ui = command_ui.new()
   local pressed
   ui, pressed = command_ui.key(ui, name, true)
+  if mode == nil then
+    A.eq(pressed, nil, name .. " does not change mode")
+    A.eq(ui.mode, nil, name .. " is not selected")
+    return
+  end
   A.eq(pressed.type, "set_mode", name .. " down")
   A.eq(pressed.mode, mode, name .. " mode")
   A.eq(ui.mode, mode, name .. " stays selected")
@@ -57,9 +62,9 @@ local function press_mode(name, mode)
   A.eq(ui.mode, mode, name .. " still selected")
 end
 
-press_mode("m", "manual")
+press_mode("m", nil)
 press_mode("s", "semi")
-press_mode("u", "auto")
+press_mode("u", nil)
 
 state = command_ui.new()
 state, msg = command_ui.key(state, "k", true)
@@ -176,7 +181,7 @@ A.eq(ui.entered_altitude, 120, "the guide keeps the entered altitude")
 A.eq(pending.type, "set_altitude", "a status heartbeat does not drop the altitude")
 A.eq(pending.y, 120, "the setpoint survives the heartbeat")
 local flown, outputs, flight_status = fly(pending, false)
-A.eq(flown.mode, "idle", "an idle altitude stays idle")
+A.eq(flown.mode, "semi", "an idle altitude stays idle")
 A.eq(flown.altitude, 120, "the idle setpoint is the typed altitude")
 A.eq(outputs.relays.relay6, false, "the idle climb leaves the reverser off")
 if flown.altitude - ship.y <= 8 then
@@ -200,7 +205,7 @@ A.eq(pending.type, "stick", "a status heartbeat does not replace the stick")
 A.eq(pending.latched_altitude, 120, "a stick before the tick keeps the altitude")
 flown, outputs = fly(pending, true)
 A.eq(flown.altitude, 120, "the tick keeps the altitude")
-A.eq(flown.mode, "manual", "a held stick may select manual")
+A.eq(flown.mode, "semi", "a held stick may select manual")
 A.eq(flown.stick.x, 1, "a held stick may fly")
 A.eq(outputs.relays.relay6, false, "the stick leaves the reverser off")
 
@@ -210,5 +215,5 @@ ui, pending = press(ui, pending, "e")
 A.eq(pending.type, "emergency", "a status heartbeat does not drop emergency")
 flown, outputs = fly(pending, false)
 A.eq(flown.emergency, true, "emergency latches")
-A.eq(outputs.rsc.rsc11, 0, "emergency holds zero thrust")
+A.eq(outputs.rsc.rsc16, 0, "emergency holds zero thrust")
 A.eq(outputs.relays.relay6, false, "emergency leaves the reverser off")

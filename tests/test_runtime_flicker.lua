@@ -22,12 +22,12 @@ local ok, failure = pcall(function()
         writes = writes + 1
       end,
     }
-    local devices = {rsc11=device}
-    for _, name in ipairs({"rsc6","rsc7","rsc8","rsc9","rsc10"}) do
+    local devices = {rsc16=device}
+    for _, name in ipairs({"rsc6","rsc7","rsc8","rsc9","rsc17"}) do
       devices[name] = {getTargetSpeed=function() return 0 end, setTargetSpeed=function() end}
     end
     local function apply(wanted, options)
-      return runtime.apply({rsc={rsc11=wanted,rsc6=0,rsc7=0,rsc8=0,rsc9=0,rsc10=0},relays={}}, devices, options)
+      return runtime.apply({rsc={rsc16=wanted,rsc6=0,rsc7=0,rsc8=0,rsc9=0,rsc17=0},relays={}}, devices, options)
     end
     for i = 1, 2000 do
       now = i * 0.05
@@ -58,7 +58,7 @@ local ok, failure = pcall(function()
     A.eq(actual,0,"zero remains available after exhausting allowance")
     now = now + 10
     score = 0
-    for i = 1, 100 do
+    for i = 1, 200 do
       now = now + 0.05
       score = math.max(0,score-1)
       apply(430)

@@ -13,8 +13,8 @@ local ok, failure = pcall(function()
     local heading, rate, now = initial, .03, 0
     os.clock = function() return now end
     local actual, devices = {}, {}
-    for _, name in ipairs({"rsc6","rsc7","rsc8","rsc9","rsc10","rsc11"}) do
-      actual[name] = name == "rsc11" and 430 or 0
+    for _, name in ipairs({"rsc12","rsc13","rsc14","rsc15","rsc17","rsc16"}) do
+      actual[name] = name == "rsc16" and 430 or 0
       devices[name] = {getTargetSpeed=function() return actual[name] end,
         setTargetSpeed=function(rpm) actual[name]=rpm end}
     end
@@ -29,7 +29,7 @@ local ok, failure = pcall(function()
         config=cfg,ready=true,su=0,stick_fresh=true,current_elevation_rpm=430,
       })
       runtime.apply(outputs,devices,{budget=require("stress").USABLE})
-      local torque = force(actual.rsc6)-force(actual.rsc9)-force(actual.rsc8)+force(actual.rsc7)
+      local torque = force(actual.rsc14)+force(actual.rsc15)-force(actual.rsc13)-force(actual.rsc12)
       rate = rate + torque*8/(cfg.ship_mass*400)*.05
       heading = heading + rate*.05
     end

@@ -20,6 +20,7 @@ local M = {}
 local HOLD_WINDOW = 1.5
 local ACCEL_CAP = 4
 local HOLD_ROOM = 2
+local ELEV_STEP = 99
 
 local function clamp_accel(accel)
   if accel > ACCEL_CAP then
@@ -250,6 +251,65 @@ local function learn_elev_scale(state, ship, held_rpm)
   arm_elev_window(state, ship, held_rpm, now)
 end
 
+local function device_scale(scale)
+  if scale == nil or scale <= 0 then
+    return 1
+  end
+  return scale
+end
+
+-- Accel of a device RPM after the learned hull scale. The model equation
+-- wants the unscaled equilibrium RPM.
+local function device_accel(device_rpm, equilibrium, at_y, scale)
+  scale = device_scale(scale)
+  if device_rpm == nil or device_rpm <= 0 then
+    return -10
+  end
+  return accel_from_rpm(device_rpm * scale, equilibrium, at_y)
+end
+
+-- Where a descent ends if this integer stays on the shaft. Crediting a later
+-- spool-up lets every tick postpone the brake, and the ship arrives at the
+-- target still doing the speed that spool was supposed to remove.
+local function descent_hold_y(y, vy, rpm, equilibrium, scale)
+  scale = device_scale(scale)
+  for _ = 1, 80 do
+    if vy >= -0.05 then
+      return y
+    end
+    local accel = device_accel(rpm, equilibrium, y, scale)
+    y = y + vy * HOLD_WINDOW + 0.5 * accel * HOLD_WINDOW * HOLD_WINDOW
+    vy = vy + accel * HOLD_WINDOW
+  end
+  return y
+end
+
+local function descent_step_stops(y, vy, target, device_rpm, equilibrium, scale)
+  local accel = device_accel(device_rpm, equilibrium, y, scale)
+  local next_v = vy + accel * HOLD_WINDOW
+  -- Budget the fall against a 0.5 m/s^2 stop. The density model can arrest a
+  -- faster fall on paper and still cross the target once the spool is late.
+  local gap = y - target
+  if gap < 4 then
+    gap = 4
+  end
+  -- Half of the 0.5 m/s^2 cap. Tracking the looser cap still arrives at the
+  -- target near 16 m/s, and the following spool cannot take that speed out.
+  local v_cap = 0.5 * math.sqrt(gap)
+  if next_v < -v_cap then
+    return false
+  end
+  local next_y = y + vy * HOLD_WINDOW + 0.5 * accel * HOLD_WINDOW * HOLD_WINDOW
+  local stopped = descent_hold_y(next_y, next_v, device_rpm, equilibrium, scale)
+  -- Keep a quarter of the gap in hand. A stop that spends the whole gap
+  -- crosses the target when this integer is late onto the shaft.
+  local keep = (y - target) * 0.25
+  if keep < HOLD_ROOM then
+    keep = HOLD_ROOM
+  end
+  return stopped >= target + keep
+end
+
 -- Where constant accel for one hold, then a full-cap stop, comes to rest.
 local function held_stop(y, vy, accel)
   local H = HOLD_WINDOW
@@ -375,7 +435,7 @@ end
 
 function M.new_state()
   return {
-    mode = "idle",
+    mode = "semi",
     emergency = false,
     stick = { x = 0, y = 0, z = 0 },
     altitude = 100,
@@ -421,7 +481,7 @@ local function clamp_outputs(outputs)
   return outputs
 end
 
-local SIDE_NAMES = { "rsc6", "rsc7", "rsc8", "rsc9" }
+local SIDE_NAMES = { "rsc13", "rsc14", "rsc15", "rsc12" }
 
 -- hold_stop sizes rpm for one propeller. Four signed props share that force.
 local function share_rpm(rpm, props)
@@ -437,11 +497,11 @@ end
 
 local function apply_side_brake(outputs, rpm)
   local shared = share_rpm(rpm, #SIDE_NAMES)
-  local rsc6, rsc7, rsc8, rsc9 = mix.sides(shared, 0, 1)
-  outputs.rsc.rsc6 = rsc6
-  outputs.rsc.rsc7 = rsc7
-  outputs.rsc.rsc8 = rsc8
-  outputs.rsc.rsc9 = rsc9
+  local rsc13, rsc14, rsc15, rsc12 = mix.sides(shared, 0, 1)
+  outputs.rsc.rsc13 = rsc13
+  outputs.rsc.rsc14 = rsc14
+  outputs.rsc.rsc15 = rsc15
+  outputs.rsc.rsc12 = rsc12
 end
 
 local function apply_side_signs(outputs, cfg)
@@ -510,7 +570,7 @@ local function apply_command(state, command, current_rpm)
     state.emergency = true
     state.stick = { x = 0, y = 0, z = 0 }
     if state.mode == "diagnostic" then
-      state.mode = "idle"
+      state.mode = "semi"
     end
     state.diagnostic = false
     state.hover_diag = false
@@ -519,6 +579,7 @@ local function apply_command(state, command, current_rpm)
   end
   if command.type == "clear_emergency" then
     state.emergency = false
+    state.mode = "semi"
     return
   end
   if state.emergency then
@@ -539,7 +600,7 @@ local function apply_command(state, command, current_rpm)
     state.diagnostic = false
     state.hover_diag = false
     state.diag_selection = nil
-    state.mode = "idle"
+    state.mode = "semi"
     state.outputs_disabled = true
     state.hover_rpm = 0
     state.x_rpm = 0
@@ -570,7 +631,6 @@ local function apply_command(state, command, current_rpm)
     if type(latched) == "number" and (state.altitude_set ~= true or state.altitude ~= latched) then
       adopt_altitude(state, latched)
     end
-    state.mode = "manual"
     state.stick = { x = command.x, y = command.y, z = command.z }
     if command.x ~= 0 or command.y ~= 0 or command.z ~= 0 then
       state.cancel = false
@@ -578,17 +638,14 @@ local function apply_command(state, command, current_rpm)
     return
   end
   if command.type == "set_mode" then
-    state.mode = command.mode
-    -- The cap is the speed of the approach that just reversed. A new mode
-    -- starts a new approach; a wobble from the last arrival must not stay.
+    -- Semi is the only flight mode. Manual, automatic, and idle do not apply.
+    if command.mode ~= "semi" then
+      return
+    end
+    state.mode = "semi"
     clear_approach(state)
-    if command.mode == "semi" then
-      state.ramp_speed = 0
-      state.ramp_rate = speed.ramp_rate(0, state.target_speed)
-    end
-    if command.mode == "auto" then
-      state.phase = "climb"
-    end
+    state.ramp_speed = 0
+    state.ramp_rate = speed.ramp_rate(0, state.target_speed)
     return
   end
   if command.type == "set_altitude" then
@@ -617,23 +674,14 @@ local function apply_command(state, command, current_rpm)
     return
   end
   if command.type == "set_speed" then
-    state.target_speed = command.speed
-    state.ramp_rate = speed.ramp_rate(state.ramp_speed, command.speed)
+    local target = speed.cap(command.speed, 35)
+    state.ramp_speed = speed.cap(state.ramp_speed or 0, 35)
+    state.target_speed = target
+    state.ramp_rate = speed.ramp_rate(state.ramp_speed, target)
     return
   end
-  if command.type == "set_waypoint" or command.type == "return_to_user" then
-    state.waypoint_x = command.x
-    state.waypoint_z = command.z
-    state.mode = "auto"
-    state.phase = "climb"
-    state.job = nil
-    state.altitude_set = false
-    -- A waypoint is a new climb. The arrival cap from the last hold must not stay.
-    clear_approach(state)
+  if command.type == "set_waypoint" or command.type == "return_to_user" or command.type == "set_profile" then
     return
-  end
-  if command.type == "set_profile" then
-    state.profile = command.profile
   end
 end
 
@@ -662,6 +710,9 @@ function M.tick(state, input)
   for i = 1, #commands do
     apply_command(state, commands[i], input.current_elevation_rpm)
   end
+  if state.mode ~= "diagnostic" then
+    state.mode = "semi"
+  end
   local ship = input.ship
   -- A missing device or an emergency stop must not store the controller RPM.
   -- The next ready tick would command it.
@@ -672,6 +723,10 @@ function M.tick(state, input)
     end
     if not state.altitude_set and ship ~= nil and ship.y ~= nil then
       state.altitude = ship.y
+      state.altitude_set = true
+      if state.job == nil then
+        state.job = "altitude"
+      end
     end
     if state.hover_rpm > 0 then
       state.elevation_equilibrium = state.hover_rpm
@@ -747,7 +802,7 @@ function M.tick(state, input)
   local vertical = "hold"
   local ref = 3
   if state.cancel then
-    state.mode = "idle"
+    state.mode = "semi"
     state.job = nil
     state.altitude_set = false
     state.phase = "hold"
@@ -803,8 +858,11 @@ function M.tick(state, input)
     vertical = "hold"
     ref = 3
   elseif state.mode == "semi" then
-    state.ramp_speed = speed.apply_ramp(state.ramp_speed, state.target_speed, state.ramp_rate, ship.dt)
-    vx = speed.cap(state.ramp_speed, 35)
+    state.target_speed = speed.cap(state.target_speed or 0, 35)
+    state.ramp_speed = speed.cap(state.ramp_speed or 0, 35)
+    state.ramp_speed = speed.apply_ramp(state.ramp_speed, state.target_speed, state.ramp_rate or 0, ship.dt)
+    state.ramp_speed = speed.cap(state.ramp_speed, 35)
+    vx = state.ramp_speed
     ref = 35
     vertical = "hold"
   elseif state.mode == "auto" and state.waypoint_x ~= nil and state.waypoint_z ~= nil then
@@ -895,6 +953,38 @@ function M.tick(state, input)
       y_hold = config.clamp_rpm(y_hold / state.elev_scale)
     end
     y_hold = clamp_to_anchor(state, ship, y_hold, intended)
+    -- The runtime holds whatever integer we send for the whole window. A
+    -- captured full brake then reverses the ship and the next swing is larger.
+    -- Follow the shaft, and only ask for the acceleration that zeros this
+    -- speed inside that window. A pinned read never moves, so the tests that
+    -- apply the command themselves keep the captured brake.
+    local shaft = input.current_elevation_rpm
+    if shaft ~= nil and state.elev_shaft ~= nil and math.abs(shaft - state.elev_shaft) > 1 then
+      state.elev_shaft_live = true
+    end
+    if shaft ~= nil then
+      state.elev_shaft = shaft
+    end
+    if state.elev_shaft_live and elev_reverse ~= true and math.abs(ship.vy) >= 0.05
+        and shaft ~= nil and shaft > 0 then
+      local scale = device_scale(state.elev_scale)
+      -- Recompute every tick. A captured brake stays at the opening cut after
+      -- the speed is already gone, and the hold then builds the opposite swing.
+      local accel = -(ship.vy * math.abs(ship.vy)) / 1.2
+      if accel > ACCEL_CAP then
+        accel = ACCEL_CAP
+      elseif accel < -ACCEL_CAP then
+        accel = -ACCEL_CAP
+      end
+      local soft = rpm_for_accel(accel, state.pid_gains.equilibrium, ship.y) / scale
+      if soft < 1 then
+        soft = 1
+      end
+      y_hold = config.clamp_rpm(soft)
+      intended = accel
+      elev_reverse = false
+      state.brake_elev = nil
+    end
     state.elev_cmd = y_hold
     if state.brake_elev == nil and math.abs(ship.vy) < 0.05 then
       state.hover_rpm = y_hold
@@ -912,7 +1002,7 @@ function M.tick(state, input)
     state.pid_gains = pid.calibrate(cfg.hover_equilibrium, 0.05)
   end
   local track_altitude = (not stop_y) and (not stick_vertical) and (
-    state.job == "altitude" or state.mode == "semi" or (state.mode == "auto" and not manual_fly)
+    state.job == "altitude" or (state.mode == "semi" and state.altitude_set)
   )
   if track_altitude then
     learn_elev_scale(state, ship, input.current_elevation_rpm)
@@ -956,6 +1046,7 @@ function M.tick(state, input)
     local raw_vy = ship.vy or 0
     local intended_accel = 0
     local anchor_trim = false
+    local governed = false
     if math.abs(raw_err) > 1e-9 or math.abs(raw_vy) > 1e-9 then
       -- A wound-up integral keeps commanding a climb after arrival, and the
       -- speed hold freezes it. Use it only for the last blocks, once the
@@ -1004,12 +1095,61 @@ function M.tick(state, input)
           requested = state.pid_gains.kp * raw_err + state.pid_gains.ki * integral
         end
       end
-      local safe = hold_safe_accel(ship.y, raw_vy, target_y, requested, state.approach_cap)
-      intended_accel = safe
-      rpm = rpm_for_accel(safe, state.pid_gains.equilibrium, ship.y)
+      -- The shaft, not the last request, is what is holding the ship. The
+      -- request can walk one step per tick while the runtime holds an integer
+      -- for the whole window, and a stop planned from the request falls through.
+      -- A read that never moves is not the shaft; tests pin it, and following
+      -- that pin orders the same step on every tick.
+      local shaft = input.current_elevation_rpm
+      if shaft ~= nil and state.descent_shaft ~= nil and math.abs(shaft - state.descent_shaft) > 1 then
+        state.descent_shaft_live = true
+      end
+      if shaft ~= nil then
+        state.descent_shaft = shaft
+      end
+      local held = state.hover_rpm
+      if state.descent_shaft_live and shaft ~= nil and shaft > 0 then
+        held = shaft
+      end
+      if held == nil or held <= 0 then
+        held = shaft
+      end
+      local scale = device_scale(state.elev_scale)
+      -- Only while already descending. A climb that is still going up must be
+      -- allowed to cut RPM even when the target is now below the ship.
+      local gap_left = ship.y - target_y
+      local settling = gap_left < 24 and raw_vy > -2
+      if not settling and ship.y > target_y + HOLD_ROOM and raw_vy < -0.05 and held ~= nil and held > 0 then
+        local desired = rpm_for_accel(requested, state.pid_gains.equilibrium, ship.y) / scale
+        if desired > held + ELEV_STEP then
+          desired = held + ELEV_STEP
+        elseif desired < held - ELEV_STEP then
+          desired = held - ELEV_STEP
+        end
+        local function choice_ok(rpm_choice)
+          return rpm_choice > 0 and descent_step_stops(
+            ship.y, raw_vy, target_y, rpm_choice, state.pid_gains.equilibrium, scale
+          )
+        end
+        local choice = desired
+        if choice <= 0 or not choice_ok(choice) then
+          choice = held
+          if choice <= 0 or not choice_ok(choice) then
+            choice = held + ELEV_STEP
+          end
+        end
+        rpm = config.clamp_rpm(choice)
+        intended_accel = device_accel(rpm, state.pid_gains.equilibrium, ship.y, scale)
+        governed = true
+      end
+      if not governed then
+        local safe = hold_safe_accel(ship.y, raw_vy, target_y, requested, state.approach_cap)
+        intended_accel = safe
+        rpm = rpm_for_accel(safe, state.pid_gains.equilibrium, ship.y)
+      end
       rev = false
     end
-    if state.elev_scale ~= nil and math.abs(state.elev_scale - 1) > 1e-6 then
+    if not governed and state.elev_scale ~= nil and math.abs(state.elev_scale - 1) > 1e-6 then
       rpm = config.clamp_rpm(rpm / state.elev_scale)
     end
     if anchor_trim and math.abs(intended_accel) <= 0.5 then
@@ -1056,16 +1196,19 @@ function M.tick(state, input)
     learn_elev_scale(state, ship, input.current_elevation_rpm)
   end
 
-  local rsc10, relay2 = mix.x(vx, ref)
+  local rsc17, relay2 = mix.x(vx, ref)
   if stop_x then
-    rsc10 = x_hold
-  elseif state.mode == "manual" then
-    rsc10 = state.x_rpm
-  elseif not stop_x and (state.mode == "semi"
-      or (ship.forward_speed ~= nil and state.mode == "auto" and state.waypoint_x ~= nil)) then
+    rsc17 = x_hold
+  elseif not stop_x and state.mode == "semi" then
     local feed = 0
-    if state.mode == "semi" and state.ramp_speed ~= state.target_speed then
+    if state.ramp_speed ~= state.target_speed then
       feed = state.ramp_rate or 0
+    end
+    -- The ramp rate must not keep thrusting after the hull is already at the cap.
+    if (forward_speed or 0) >= 35 and feed > 0 then
+      feed = 0
+    elseif (forward_speed or 0) <= -35 and feed < 0 then
+      feed = 0
     end
     local accel = control.accel(
       vx,
@@ -1075,39 +1218,30 @@ function M.tick(state, input)
       cfg.velocity_response or 1,
       feed
     )
-    rsc10 = control.prop_rpm(accel, cfg.hover_equilibrium) * pid.thrust_scale(ship.y)
-    relay2 = speed.relay2_level(rsc10, cfg.hover_equilibrium)
+    rsc17 = control.prop_rpm(accel, cfg.hover_equilibrium) * pid.thrust_scale(ship.y)
+    relay2 = speed.relay2_level(rsc17, cfg.hover_equilibrium)
   end
-  rsc10 = config.clamp_rpm(rsc10)
-  outputs.rsc.rsc10 = rsc10
+  rsc17 = config.clamp_rpm(rsc17)
+  outputs.rsc.rsc17 = rsc17
   outputs.relays.relay2 = relay2
-  local rsc11, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
+  local rsc16, _ = mix.elevation(vertical, state.hover_rpm, cfg.climb_rpm)
   if stop_y then
-    rsc11 = y_hold
+    rsc16 = y_hold
   end
-  outputs.rsc.rsc11 = rsc11
+  outputs.rsc.rsc16 = rsc16
   outputs.relays.relay6 = false
 
-  local rsc6, rsc7, rsc8, rsc9
-  if ship.side_speed ~= nil and state.mode == "auto" and state.waypoint_x ~= nil
-      and not (state.mode == "manual" and state.stick.y ~= 0) then
-    local accel = control.accel(vy, side_speed, ship.dt, cfg.side_accel or 0.5, cfg.velocity_response or 1)
-    local shared = control.rcs_rpm(accel, cfg.ship_mass, #SIDE_NAMES)
-    rsc6, rsc7, rsc8, rsc9 = mix.sides(shared, 0, 1)
-  else
-    rsc6, rsc7, rsc8, rsc9 = mix.sides(vy, 0, cfg.side_gain)
+  -- A fresh stick to the side is a pull toward that side, not the old
+  -- velocity hold. Positive stick y pulls starboard.
+  local lateral = 0
+  if state.stick.y ~= 0 then
+    lateral = state.stick.y
   end
-  if state.mode == "manual" and state.stick.y ~= 0 then
-    -- Four reversible props share one side acceleration. The command follows
-    -- the stick speed, so a held key settles on that speed instead of
-    -- integrating a constant RPM.
-    local accel = control.accel(vy, side_speed, ship.dt or 0.05, cfg.side_accel or 0.5, cfg.velocity_response or 1)
-    rsc6, rsc7, rsc8, rsc9 = mix.sides(control.rcs_rpm(accel, cfg.ship_mass, 4), 0, 1)
-  end
-  outputs.rsc.rsc6 = rsc6
-  outputs.rsc.rsc7 = rsc7
-  outputs.rsc.rsc8 = rsc8
-  outputs.rsc.rsc9 = rsc9
+  local rsc13, rsc14, rsc15, rsc12 = mix.sides(lateral, 0, cfg.side_gain)
+  outputs.rsc.rsc13 = rsc13
+  outputs.rsc.rsc14 = rsc14
+  outputs.rsc.rsc15 = rsc15
+  outputs.rsc.rsc12 = rsc12
   local kind, which = outage.classify(ship.pitch_rate, ship.roll_rate, cfg.outage_threshold)
   local outage_name = nil
   if kind == "corner" then
@@ -1124,7 +1258,7 @@ function M.tick(state, input)
     for name, on in pairs(cuts) do
       outputs.relays[name] = on
     end
-    outputs.rsc.rsc11 = 0
+    outputs.rsc.rsc16 = 0
   else
     state.balance_time = 0
   end
@@ -1140,11 +1274,11 @@ function M.tick(state, input)
     local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
     local spin = manual.yaw_rpm(yaw_err, ship.yaw_rate, cfg.ship_mass, cfg.yaw_damping)
     if spin ~= 0 then
-      local y6, y7, y8, y9 = mix.sides(0, spin, 1)
-      outputs.rsc.rsc6 = mix.add_rpm(outputs.rsc.rsc6, y6)
-      outputs.rsc.rsc7 = mix.add_rpm(outputs.rsc.rsc7, y7)
-      outputs.rsc.rsc8 = mix.add_rpm(outputs.rsc.rsc8, y8)
-      outputs.rsc.rsc9 = mix.add_rpm(outputs.rsc.rsc9, y9)
+      local y13, y14, y15, y12 = mix.sides(0, spin, 1)
+      outputs.rsc.rsc13 = mix.add_rpm(outputs.rsc.rsc13, y13)
+      outputs.rsc.rsc14 = mix.add_rpm(outputs.rsc.rsc14, y14)
+      outputs.rsc.rsc15 = mix.add_rpm(outputs.rsc.rsc15, y15)
+      outputs.rsc.rsc12 = mix.add_rpm(outputs.rsc.rsc12, y12)
     end
   end
   apply_side_signs(outputs, cfg)

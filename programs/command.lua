@@ -117,10 +117,11 @@ session.runtime = runtime
 session.config = config
 session.protocol = protocol
 local stress_gauge = devices.stressometer
-local elevation_device = devices.rsc11
+local elevation_device = devices.rsc16
 local speed_gauge = devices.speedometer
 
 local screens = {}
+local monitor_frames = {}
 local function attach_monitors()
   screens = {}
   local found = { peripheral.find("monitor") }
@@ -145,10 +146,11 @@ local function refresh_peripherals()
   devices = wrap_devices()
   session.devices = devices
   stress_gauge = devices.stressometer
-  elevation_device = devices.rsc11
+  elevation_device = devices.rsc16
   speed_gauge = devices.speedometer
   missing = startup.missing(present_map(), config.required_names(cfg))
   ready = #missing == 0
+  monitor_frames = {}
   local assigned = attach_monitors()
   for name, page in pairs(assigned) do
     if pages[name] == nil then
@@ -170,14 +172,91 @@ local PALETTE = {
   white = colors.white,
 }
 
-local function paint_tabs(mon, w, h, page)
+local BLIT_HEX = "0123456789abcdef"
+local blit_of = {}
+
+local function blit_char(color)
+  local known = blit_of[color]
+  if known ~= nil then
+    return known
+  end
+  local bit = 1
+  for i = 1, 16 do
+    if color == bit then
+      known = BLIT_HEX:sub(i, i)
+      blit_of[color] = known
+      return known
+    end
+    bit = bit * 2
+  end
+  blit_of[color] = "f"
+  return "f"
+end
+
+local function new_canvas(w, h)
+  local rows = {}
+  local fg = blit_char(colors.white)
+  local bg = blit_char(colors.black)
+  for y = 1, h do
+    local text, fore, back = {}, {}, {}
+    for x = 1, w do
+      text[x] = " "
+      fore[x] = fg
+      back[x] = bg
+    end
+    rows[y] = { text = text, fg = fore, bg = back }
+  end
+  return { w = w, h = h, rows = rows }
+end
+
+local function paint(canvas, x, y, text, fg, bg)
+  local row = canvas.rows[y]
+  if row == nil or text == nil or text == "" then
+    return
+  end
+  local fore = blit_char(fg)
+  local back = blit_char(bg)
+  for i = 1, #text do
+    local col = x + i - 1
+    if col >= 1 and col <= canvas.w then
+      row.text[col] = text:sub(i, i)
+      row.fg[col] = fore
+      row.bg[col] = back
+    end
+  end
+end
+
+local function flush_canvas(name, mon, canvas)
+  local previous = monitor_frames[name]
+  local same = previous ~= nil and previous.w == canvas.w and previous.h == canvas.h
+  local lines = {}
+  for y = 1, canvas.h do
+    local row = canvas.rows[y]
+    local text = table.concat(row.text)
+    local fg = table.concat(row.fg)
+    local bg = table.concat(row.bg)
+    local old = same and previous.lines[y] or nil
+    if old == nil or old.text ~= text or old.fg ~= fg or old.bg ~= bg then
+      mon.setCursorPos(1, y)
+      if mon.blit ~= nil then
+        mon.blit(text, fg, bg)
+      else
+        mon.setBackgroundColor(colors.black)
+        mon.setTextColor(colors.white)
+        mon.write(text)
+      end
+    end
+    lines[y] = { text = text, fg = fg, bg = bg }
+  end
+  monitor_frames[name] = { w = canvas.w, h = canvas.h, lines = lines }
+end
+
+local function paint_tabs(canvas, w, h, page)
   for _, control in ipairs(mfd.controls(w, h)) do
     local bg = colors.blue
     if control.page == page then
       bg = colors.lime
     end
-    mon.setBackgroundColor(bg)
-    mon.setTextColor(colors.black)
     local label = control.label
     if #label > control.w then
       label = string.sub(label, 1, control.w)
@@ -187,11 +266,10 @@ local function paint_tabs(mon, w, h, page)
     local line = string.rep(" ", left) .. label .. string.rep(" ", pad - left)
     local tall = control.h or 1
     for dy = 0, tall - 1 do
-      mon.setCursorPos(control.x, control.y + dy)
       if dy == 0 then
-        mon.write(line)
+        paint(canvas, control.x, control.y + dy, line, colors.black, bg)
       else
-        mon.write(string.rep(" ", control.w))
+        paint(canvas, control.x, control.y + dy, string.rep(" ", control.w), colors.black, bg)
       end
     end
   end
@@ -210,38 +288,27 @@ local function draw_monitors(outputs, sample, stress)
     local mon = screen.mon
     local w, h = screen.w, screen.h
     local page = pages[name] or "Systems"
-    mon.setBackgroundColor(colors.black)
-    mon.setTextColor(colors.white)
-    mon.clear()
-    for row = 1, h - 2 do
-      mon.setBackgroundColor(colors.black)
-      mon.setCursorPos(1, row)
-      mon.write(string.rep(" ", w))
+    local canvas = new_canvas(w, h)
+    local banner = tostring(state.mode)
+    if state.job ~= nil then
+      banner = banner .. " " .. tostring(state.job)
     end
-    mon.setCursorPos(1, 1)
-    mon.setBackgroundColor(colors.lightBlue)
-    mon.setTextColor(colors.white)
-    mon.write(page)
+    if state.emergency or session.latched then
+      banner = banner .. " EMERGENCY"
+    end
+    paint(canvas, 1, 1, banner .. "  " .. page, colors.white, colors.lightBlue)
     if not ready then
-      mon.setBackgroundColor(colors.red)
-      mon.setCursorPos(1, 3)
-      mon.write("missing " .. table.concat(missing, " "))
+      paint(canvas, 1, 3, "missing " .. table.concat(missing, " "), colors.white, colors.red)
     elseif page == "Flight" then
       local figure = views.flight(sample, outputs)
-      mon.setBackgroundColor(colors.black)
-      mon.setTextColor(colors.white)
-      mon.setCursorPos(1, 3)
-      mon.write(string.format("X %0.2f  Y %0.2f  Z %0.2f", figure.vx, figure.vy, figure.vz))
-      mon.setCursorPos(1, 4)
-      mon.write(string.format("rotation %0.3f  Bearing %0.2f", figure.rotation, figure.bearing))
+      paint(canvas, 1, 3, string.format("X %0.2f  Y %0.2f  Z %0.2f", figure.vx, figure.vy, figure.vz), colors.white, colors.black)
+      paint(canvas, 1, 4, string.format("rotation %0.3f  Bearing %0.2f", figure.rotation, figure.bearing), colors.white, colors.black)
       local col = 1
       local row = 6
       for _, thruster in ipairs(figure.thrusters) do
-        mon.setCursorPos(col, row)
-        mon.setBackgroundColor(PALETTE[thruster.color])
-        mon.setTextColor(colors.black)
-        mon.write(" " .. thruster.label .. " ")
-        col = col + #thruster.label + 3
+        local label = " " .. thruster.label .. " "
+        paint(canvas, col, row, label, colors.black, PALETTE[thruster.color])
+        col = col + #label + 1
         if col > w - 8 then
           col = 1
           row = row + 2
@@ -256,52 +323,33 @@ local function draw_monitors(outputs, sample, stress)
         waypoint_x = state.waypoint_x,
         waypoint_z = state.waypoint_z,
       })
-      mon.setBackgroundColor(colors.black)
-      mon.setTextColor(colors.lime)
-      mon.setCursorPos(1, 3)
-      mon.write(figure.compass)
-      mon.setTextColor(colors.white)
-      mon.setCursorPos(1, 5)
-      mon.write(string.format("alt %0.1f  spd %0.2f", figure.altitude, figure.overall))
-      mon.setCursorPos(1, 6)
-      mon.write(string.format("Bearing %0.2f  drift %0.2f", figure.bearing, figure.drift))
-      mon.setCursorPos(1, 7)
+      paint(canvas, 1, 3, figure.compass, colors.lime, colors.black)
+      paint(canvas, 1, 5, string.format("alt %0.1f  spd %0.2f", figure.altitude, figure.overall), colors.white, colors.black)
+      paint(canvas, 1, 6, string.format("Bearing %0.2f  drift %0.2f", figure.bearing, figure.drift), colors.white, colors.black)
       local eta = "n/a"
       if figure.eta ~= nil then
         eta = string.format("%0.1fs", figure.eta)
       end
-      mon.write("eta " .. eta)
+      paint(canvas, 1, 7, "eta " .. eta, colors.white, colors.black)
     elseif page == "Engines" then
       local row = 3
       for _, group in ipairs(groups) do
-        mon.setCursorPos(1, row)
-        mon.setBackgroundColor(colors.gray)
-        mon.setTextColor(colors.white)
-        mon.write(group.type)
+        paint(canvas, 1, row, group.type, colors.white, colors.gray)
         row = row + 1
-        mon.setBackgroundColor(colors.black)
         for _, item in ipairs(group.devices) do
-          mon.setCursorPos(1, row)
-          mon.write(item.name .. " " .. tostring(item.rpm))
+          paint(canvas, 1, row, item.name .. " " .. tostring(item.rpm), colors.white, colors.black)
           row = row + 1
         end
       end
-      mon.setCursorPos(1, row)
-      mon.setBackgroundColor(colors.brown)
-      mon.write("SU consumed " .. tostring(stress.consumed))
+      paint(canvas, 1, row, "SU consumed " .. tostring(stress.consumed), colors.white, colors.brown)
       row = row + 1
-      mon.setCursorPos(1, row)
-      mon.write("SU remaining " .. tostring(stress.remaining))
+      paint(canvas, 1, row, "SU remaining " .. tostring(stress.remaining), colors.white, colors.brown)
       row = row + 1
-      mon.setCursorPos(1, row)
-      mon.setBackgroundColor(colors.black)
-      mon.write("X axis propellers " .. string.format("%0.1f", stress.x_axis_propellers))
+      paint(canvas, 1, row, "X axis propellers " .. string.format("%0.1f", stress.x_axis_propellers), colors.white, colors.black)
       row = row + 1
-      mon.setCursorPos(1, row)
-      mon.write("Z axis propellers " .. string.format("%0.1f", stress.z_axis_propellers))
+      paint(canvas, 1, row, "Z axis propellers " .. string.format("%0.1f", stress.z_axis_propellers), colors.white, colors.black)
       row = row + 1
-      mon.setCursorPos(1, row)
-      mon.write("RCS " .. string.format("%0.1f", stress.rcs))
+      paint(canvas, 1, row, "RCS " .. string.format("%0.1f", stress.rcs), colors.white, colors.black)
     elseif page == "Emergency" then
       local diagram = views.emergency(outputs)
       local top = 3
@@ -317,20 +365,13 @@ local function draw_monitors(outputs, sample, stress)
         if px < 1 then
           px = 1
         end
-        mon.setCursorPos(px, py)
-        mon.setBackgroundColor(PALETTE[part.color])
-        mon.setTextColor(colors.black)
-        mon.write(part.label)
+        paint(canvas, px, py, part.label, colors.black, PALETTE[part.color])
       end
-    else
-      mon.setBackgroundColor(colors.black)
-      mon.setTextColor(colors.lime)
-      mon.setCursorPos(1, 3)
-      if ready then
-        mon.write("All peripherals present")
-      end
+    elseif ready then
+      paint(canvas, 1, 3, "All peripherals present", colors.lime, colors.black)
     end
-    paint_tabs(mon, w, h, page)
+    paint_tabs(canvas, w, h, page)
+    flush_canvas(name, mon, canvas)
   end
 end
 
@@ -512,6 +553,7 @@ local last_stress = nil
 local paint_timer = nil
 local painted_guide = nil
 local painted_monitors = nil
+local next_monitor_paint = 0
 
 local function guide_picture()
   local alt = ""
@@ -544,12 +586,12 @@ local function monitor_picture(outputs, sample, stress)
   local rpm11 = 0
   local rpm10 = 0
   if outputs.rsc ~= nil then
-    rpm11 = math.floor((outputs.rsc.rsc11 or 0) >= 0 and (outputs.rsc.rsc11 or 0) or -(outputs.rsc.rsc11 or 0))
-    if (outputs.rsc.rsc11 or 0) < 0 then
+    rpm11 = math.floor((outputs.rsc.rsc16 or 0) >= 0 and (outputs.rsc.rsc16 or 0) or -(outputs.rsc.rsc16 or 0))
+    if (outputs.rsc.rsc16 or 0) < 0 then
       rpm11 = -rpm11
     end
-    rpm10 = math.floor((outputs.rsc.rsc10 or 0) >= 0 and (outputs.rsc.rsc10 or 0) or -(outputs.rsc.rsc10 or 0))
-    if (outputs.rsc.rsc10 or 0) < 0 then
+    rpm10 = math.floor((outputs.rsc.rsc17 or 0) >= 0 and (outputs.rsc.rsc17 or 0) or -(outputs.rsc.rsc17 or 0))
+    if (outputs.rsc.rsc17 or 0) < 0 then
       rpm10 = -rpm10
     end
   end
@@ -596,19 +638,48 @@ local function paint_if_changed()
   end
   local monitors_now = monitor_picture(last_outputs, last_sample, last_stress)
   if monitors_now ~= "" and monitors_now ~= painted_monitors then
+    -- A full monitor rewrite yields once per call. Doing that on every
+    -- altitude tick blanks the screens for the whole climb.
+    local now = os.clock()
+    if now < next_monitor_paint then
+      if paint_timer == nil then
+        paint_timer = os.startTimer(next_monitor_paint - now)
+      end
+      return
+    end
     draw_monitors(last_outputs, last_sample, last_stress)
     painted_monitors = monitors_now
+    next_monitor_paint = now + 0.25
   end
 end
 
 local function note_keys(message)
   queue(message)
+  if message ~= nil and message.type == "set_mode" and not session.latched and not state.emergency then
+    state.mode = message.mode
+    state.outputs_disabled = false
+    if guide ~= nil then
+      guide.mode = message.mode
+    end
+  end
   if message ~= nil then
     status_line = describe(message)
   elseif ui.field ~= nil then
     status_line = describe(nil)
   end
-  request_paint()
+  if session.latched or state.emergency then
+    status_line = "Emergency latched. Press C. " .. status_line
+  end
+  -- Draw before the next actuator write. That write rebuilds kinetics on
+  -- the server thread and nothing on screen updates until it returns.
+  draw_guide(status_line, guide)
+  painted_guide = guide_picture()
+  local monitors_now = monitor_picture(last_outputs, last_sample, last_stress)
+  if monitors_now ~= "" then
+    draw_monitors(last_outputs, last_sample, last_stress)
+    painted_monitors = monitors_now
+    next_monitor_paint = os.clock() + 0.25
+  end
 end
 
 draw_guide(status_line, guide)
@@ -683,7 +754,9 @@ local function flight_loop()
         capacity = stress_gauge.getStressCapacity()
       end
       local elevation_rpm = nil
-      if elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
+      if speed_gauge ~= nil and speed_gauge.getSpeed ~= nil then
+        elevation_rpm = speed_gauge.getSpeed()
+      elseif elevation_device ~= nil and elevation_device.getTargetSpeed ~= nil then
         elevation_rpm = elevation_device.getTargetSpeed()
       end
       session.ship = sample
@@ -710,6 +783,22 @@ local function flight_loop()
         current_elevation_rpm = elevation_rpm,
       })
       session.state = state
+      last_outputs = outputs
+      last_sample = sample
+      last_stress = views.stress(consumed, capacity or 0, outputs)
+      local applied_view = command_status.apply({
+        mode = status.mode,
+        altitude = status.altitude,
+        speed = status.horizontal_speed,
+        su = last_stress.consumed,
+        su_remaining = last_stress.remaining,
+      })
+      if applied_view ~= nil then
+        guide = applied_view
+      end
+      -- Paint before the actuator write. setTargetSpeed rebuilds the kinetic
+      -- network on the server thread, and no screen updates until it returns.
+      paint_if_changed()
       outputs = runtime.apply(outputs, devices, {measured=consumed, capacity=capacity})
       state.modeled_su = stress_mod.consumed(outputs)
       local stress = views.stress(consumed, capacity or 0, outputs)
@@ -721,14 +810,6 @@ local function flight_loop()
       status.speed = status.horizontal_speed
       status.type = "status"
       rednet.broadcast(status)
-      last_outputs = outputs
-      last_sample = sample
-      last_stress = stress
-      local applied = command_status.apply(status)
-      if applied ~= nil then
-        guide = applied
-      end
-      request_paint()
       tick_timer = os.startTimer(0.05)
     elseif event == "timer" and a == paint_timer then
       paint_timer = nil
@@ -765,7 +846,7 @@ local function shell_loop()
     local ok, err = pcall(function()
       link_mod.serve(url, token, "engine", on_message, on_idle, session)
     end)
-    if not ok then
+    if not ok and not link_mod.bridge_down(err) then
       print(err)
     end
     sleep(5)

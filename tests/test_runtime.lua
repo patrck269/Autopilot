@@ -23,10 +23,10 @@ end
 local rsc = recorder()
 local relay = recorder()
 runtime.apply({
-  rsc = { rsc10 = -12 },
+  rsc = { rsc17 = -12 },
   relays = { relay2 = 4, relay7 = true },
   diag_relay = nil,
-}, { rsc10 = rsc, relay2 = relay, relay7 = relay })
+}, { rsc17 = rsc, relay2 = relay, relay7 = relay })
 A.eq(rsc.calls[1], "rpm -12", "rsc")
 A.eq(relay.calls[1], "analog bottom 4", "stepped throttle")
 A.eq(relay.calls[2], "out bottom true", "cutoff all sides starts at bottom")
@@ -43,9 +43,9 @@ local limit = config.default().max_rpm
 local high_x = recorder()
 local high_z = recorder()
 runtime.apply({
-  rsc = { rsc10 = 50000, rsc11 = -50000 },
+  rsc = { rsc17 = 50000, rsc16 = -50000 },
   relays = {},
-}, { rsc10 = high_x, rsc11 = high_z })
+}, { rsc17 = high_x, rsc16 = high_z })
 A.eq(high_x.calls[1], "rpm " .. tostring(limit), "high target is clamped")
 A.eq(high_z.calls[1], "rpm " .. tostring(-limit), "negative target is clamped")
 
@@ -54,7 +54,7 @@ local held = recorder()
 local function push(rpm)
   now = now + 0.05
   local before = #held.calls
-  runtime.apply({ rsc = { rsc11 = rpm }, relays = {} }, { rsc11 = held })
+  runtime.apply({ rsc = { rsc16 = rpm }, relays = {} }, { rsc16 = held })
   if #held.calls == before then
     return nil
   end
@@ -103,14 +103,14 @@ A.eq(push(90000), "rpm 99", "leaving zero after the stop steps by less than 100"
 
 runtime = reload()
 local fresh_high = recorder()
-runtime.apply({ rsc = { rsc11 = 90000 }, relays = {} }, { rsc11 = fresh_high })
+runtime.apply({ rsc = { rsc16 = 90000 }, relays = {} }, { rsc16 = fresh_high })
 A.eq(fresh_high.calls[1], "rpm " .. tostring(limit), "a first elevation write may be the clamped maximum")
 
 runtime = reload()
 local moving = recorder()
 for i = 1, 400 do
   now = now + 0.05
-  runtime.apply({ rsc = { rsc11 = i * 20 }, relays = {} }, { rsc11 = moving })
+  runtime.apply({ rsc = { rsc16 = i * 20 }, relays = {} }, { rsc16 = moving })
 end
 if #moving.calls >= 128 then
   error("elevation setTargetSpeed called " .. tostring(#moving.calls) .. " times in 400 applies")
@@ -134,9 +134,9 @@ local unreliable = {setTargetSpeed = function()
   attempts = attempts + 1
   if attempts == 1 then error("temporary detach") end
 end}
-local zero = {rsc = {rsc10 = 0}, relays = {}}
-A.eq(pcall(runtime.apply, zero, {rsc10 = unreliable}), false, "failed stop reported")
-runtime.apply(zero, {rsc10 = unreliable})
+local zero = {rsc = {rsc17 = 0}, relays = {}}
+A.eq(pcall(runtime.apply, zero, {rsc17 = unreliable}), false, "failed stop reported")
+runtime.apply(zero, {rsc17 = unreliable})
 A.eq(attempts, 2, "failed zero write is retried")
 
 runtime = reload()
@@ -145,9 +145,9 @@ local changed = {
   getTargetSpeed = function() return actual end,
   setTargetSpeed = function(rpm) actual = rpm; writes = writes + 1 end,
 }
-runtime.apply(zero, {rsc10 = changed})
+runtime.apply(zero, {rsc17 = changed})
 actual = 100 -- An independent controller or replacement device changed it.
-runtime.apply(zero, {rsc10 = changed})
+runtime.apply(zero, {rsc17 = changed})
 A.eq(actual, 0, "external target change cannot bypass zero")
 A.eq(writes, 2, "external target change is corrected")
 

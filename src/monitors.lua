@@ -1,23 +1,19 @@
 local M = {}
 
-local ORDER = { "Flight", "Navigation", "Engines", "Emergency" }
+local COMMAND = {
+  monitor_4 = "Flight",
+  monitor_5 = "Navigation",
+  monitor_6 = "Engines",
+  monitor_7 = "Emergency",
+}
 
 function M.assign(list)
-  local items = {}
-  for i, item in ipairs(list) do
-    items[i] = item
-  end
-  table.sort(items, function(a, b)
-    local as = a.w * a.h
-    local bs = b.w * b.h
-    if as ~= bs then
-      return as > bs
-    end
-    return a.name < b.name
-  end)
   local pages = {}
-  for i, item in ipairs(items) do
-    pages[item.name] = ORDER[i]
+  for _, item in ipairs(list) do
+    local page = COMMAND[item.name]
+    if page ~= nil then
+      pages[item.name] = page
+    end
   end
   return pages
 end

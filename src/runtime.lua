@@ -29,9 +29,22 @@ local function forget(name)
   chase_left[name] = nil
 end
 
-local function write_all(device, value)
+local relay_state = {}
+
+local function relay_write(name, side, value, send)
+  local key = name .. "\0" .. side
+  if relay_state[key] == value then
+    return
+  end
+  relay_state[key] = value
+  send()
+end
+
+local function write_all(name, device, value)
   for _, side in ipairs(SIDES) do
-    device.setOutput(side, value)
+    relay_write(name, side, value, function()
+      device.setOutput(side, value)
+    end)
   end
 end
 
@@ -44,10 +57,9 @@ local function integer_rpm(rpm)
 end
 
 -- A powered target change stops and restarts the network: +10 flicker,
--- decaying by one per game tick. Short partial-step bursts spend a bounded
--- allowance; later changes wait for game ticks to replenish it.
-local APPROACH_HOLD = 3
-local BURST = 3
+-- decaying by one per game tick. The rebuild runs on the server thread, so a
+-- burst of them freezes every screen until it returns. Later changes wait
+-- for the full hold instead of following on the next tick.
 local FLICKER_LIMIT = 80 -- Reserve room for an immediate stop and propagation.
 
 local function flicker_score(name)
@@ -59,19 +71,11 @@ local function flicker_score(name)
   return flicker[name]
 end
 
-local function remember(name, rpm, arrived)
+local function remember(name, rpm, _arrived)
   last_rpm[name] = rpm
   held_since[name] = os.clock()
-  if arrived then
-    hold_for[name] = M.speed_hold
-    chase_left[name] = BURST
-  elseif (chase_left[name] or 0) > 1 then
-    chase_left[name] = chase_left[name] - 1
-    hold_for[name] = 0
-  else
-    chase_left[name] = 0
-    hold_for[name] = APPROACH_HOLD
-  end
+  hold_for[name] = M.speed_hold
+  chase_left[name] = 0
 end
 
 local function hold_open(name, hold)
@@ -84,7 +88,7 @@ end
 
 -- Retain the elevation slew limit for flight behavior. Create has no
 -- 100-RPM destruction threshold; every changed integer costs flicker.
-local ELEVATION = "rsc11"
+local ELEVATION = "rsc16"
 local ELEVATION_STEP = 99
 
 local function limit_step(name, previous, sending)
@@ -192,6 +196,7 @@ local function apply_targets(outputs, devices, options)
     return a < b
   end)
   local reduction_failed = false
+  local failed = nil
   for _, name in ipairs(writes) do
     local rpm, previous = applied.rsc[name], previous_targets[name]
     local increases = math.abs(rpm) > math.abs(previous or 0)
@@ -199,27 +204,45 @@ local function apply_targets(outputs, devices, options)
       -- Charge attempts too: a peripheral can fail after changing the block.
       -- Cache invalidation must not erase the protection before a retry.
       flicker[name] = flicker_score(name) + (rpm == 0 and 5 or 10)
-      if devices[name].setTargetSpeed(rpm) ~= false then
+      local device = devices[name]
+      if device == nil or device.setTargetSpeed == nil then
         remember(name, rpm, rpm == integer_rpm(outputs.rsc[name]))
-      elseif not increases then
-        reduction_failed = true
+      else
+        local returned
+        local wrote, failure = pcall(function()
+          returned = device.setTargetSpeed(rpm)
+        end)
+        if not wrote then
+          failed = failure or "actuator write failed"
+        elseif returned ~= false then
+          remember(name, rpm, rpm == integer_rpm(outputs.rsc[name]))
+        elseif not increases then
+          reduction_failed = true
+        end
       end
     end
   end
+  if failed ~= nil then
+    error(failed)
+  end
   local relay2 = devices.relay2
   if relay2 ~= nil and relay2.setAnalogOutput ~= nil then
-    relay2.setAnalogOutput("bottom", outputs.relays.relay2 or 0)
+    local level = outputs.relays.relay2 or 0
+    relay_write("relay2", "bottom", level, function()
+      relay2.setAnalogOutput("bottom", level)
+    end)
   end
   for name, on in pairs(outputs.relays) do
     if name ~= "relay2" then
       local device = devices[name]
       if device ~= nil and device.setOutput ~= nil then
-        write_all(device, on == true)
+        write_all(name, device, on == true)
       end
     end
   end
   if outputs.diag_relay ~= nil then
     local device = devices[outputs.diag_relay.device]
+    local diag_name = outputs.diag_relay.device
     if device ~= nil and device.setOutput ~= nil then
       for _, side in ipairs(SIDES) do
         local value = 0
@@ -227,9 +250,13 @@ local function apply_targets(outputs, devices, options)
           value = outputs.diag_relay.level
         end
         if device.setAnalogOutput ~= nil then
-          device.setAnalogOutput(side, value)
+          relay_write(diag_name, side, value, function()
+            device.setAnalogOutput(side, value)
+          end)
         else
-          device.setOutput(side, value ~= 0)
+          relay_write(diag_name, side, value ~= 0, function()
+            device.setOutput(side, value ~= 0)
+          end)
         end
       end
     end

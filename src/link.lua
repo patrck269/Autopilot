@@ -6,6 +6,15 @@ function M.should_dial(token)
   return shell_mod.should_dial(token)
 end
 
+-- The debug bridge is optional. A refused dial is retried, and it is not a
+-- flight fault, so it stays off the command terminal.
+function M.bridge_down(err)
+  local text = tostring(err):lower()
+  return text:find("could not connect", 1, true) ~= nil
+      or text:find("connection refused", 1, true) ~= nil
+      or text:find("websocket failed", 1, true) ~= nil
+end
+
 function M.read_text(open, path)
   local handle = open(path, "r")
   if handle == nil then

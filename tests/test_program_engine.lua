@@ -52,8 +52,8 @@ local function run(commands)
   return broadcasts[1]
 end
 local result=run({{type="set_mode",mode="semi"},{type="set_altitude",y=250},{type="set_speed",speed=20}})
-if result.outputs.rsc10<=0 then error("actual program dropped queued speed") end
-if result.outputs.rsc11<=430 then error("actual program dropped queued altitude") end
+if result.outputs.rsc17<=0 then error("actual program dropped queued speed") end
+if result.outputs.rsc16<=430 then error("actual program dropped queued altitude") end
 A.eq(result.status.type,"status","program broadcasts telemetry")
 result=run({{type="emergency"},{type="stick",x=1,y=0,z=0}})
 A.eq(result.status.emergency,true,"program latches emergency before queued stick")

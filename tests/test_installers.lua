@@ -43,7 +43,6 @@ local function check(label, program, installer)
 end
 
 check("command", "programs/command.lua", "install/command.lua")
-check("pocket", "programs/pocket.lua", "install/pocket.lua")
 check("watchdog", "programs/watchdog.lua", "install/watchdog.lua")
 check("simple ship", "programs/simple_ship.lua", "install/simple_ship.lua")
 

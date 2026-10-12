@@ -1,8 +1,7 @@
 local M = {}
 
--- Create's network stress is impact * abs(RPM). The four elevation props are
--- clockwork bearings (impact 4) on rsc11. Each side output is one reversible
--- clockwork propeller on its own controller (impact 8).
+-- Create's network stress is impact * abs(RPM). Elevation is controller 16.
+-- The four RCS pullers are controllers 12, 13, 14, and 15. Forward is 17.
 M.CAPACITY = 479231
 -- Leave room for shafts and the rest of the network. Sitting on the exact
 -- capacity overstresses Create, the shaft speed falls to 0, and a vstuff
@@ -16,11 +15,11 @@ M.ELEVATION_PROPS = 4
 M.X_IMPACT = 4
 M.X_PROPS = 1
 
-local RCS = { "rsc6", "rsc7", "rsc8", "rsc9" }
-local FORWARD = "rsc10"
+local RCS = { "rsc12", "rsc13", "rsc14", "rsc15" }
+local FORWARD = "rsc17"
 
 local function elevation_su(rsc)
-  return math.abs(rsc.rsc11 or 0) * M.ELEVATION_PROPS * M.ELEVATION_IMPACT
+  return math.abs(rsc.rsc16 or 0) * M.ELEVATION_PROPS * M.ELEVATION_IMPACT
 end
 
 local function other_su(rsc)
@@ -85,10 +84,10 @@ function M.limit_budget(outputs, room)
   -- climb stays at least as high as the hover this budget can hold.
   if elev_su >= room then
     local max_elev = room / (M.ELEVATION_PROPS * M.ELEVATION_IMPACT)
-    if (rsc.rsc11 or 0) < 0 then
-      rsc.rsc11 = -max_elev
+    if (rsc.rsc16 or 0) < 0 then
+      rsc.rsc16 = -max_elev
     else
-      rsc.rsc11 = max_elev
+      rsc.rsc16 = max_elev
     end
     scale_others(rsc, 0)
     return outputs

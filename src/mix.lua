@@ -5,9 +5,8 @@ local M = {}
 function M.zero()
   return {
     rsc = {
-      rsc2 = 0, rsc3 = 0, rsc4 = 0, rsc5 = 0,
-      rsc6 = 0, rsc7 = 0, rsc8 = 0, rsc9 = 0,
-      rsc10 = 0, rsc11 = 0,
+      rsc12 = 0, rsc13 = 0, rsc14 = 0, rsc15 = 0,
+      rsc16 = 0, rsc17 = 0,
     },
     relays = {
       relay2 = 0,
@@ -40,17 +39,32 @@ function M.elevation(vertical, hover_rpm, climb_rpm)
   return hover_rpm, false
 end
 
--- Side units are reversible clockwork propellers. Positive vy is starboard:
--- the port pair spins forward and the starboard pair spins in reverse.
--- Positive yaw spins rsc6 and rsc7 forward and reverses rsc8 and rsc9.
+-- Every RCS controller is a puller. Positive RPM pulls toward that side.
+-- Positive vy is starboard: bow and stern starboard pull, port stays at 0.
+-- Positive yaw pulls the bow to starboard and the stern to port.
+-- Returns bow port 13, bow starboard 14, stern port 15, stern starboard 12.
 function M.sides(vy, yaw, gain)
   local sway = vy * gain
   local spin = yaw * gain
-  local rsc6 = sway + spin
-  local rsc8 = sway - spin
-  local rsc7 = -sway + spin
-  local rsc9 = -sway - spin
-  return rsc6, rsc7, rsc8, rsc9
+  local port = 0
+  local starboard = 0
+  if sway > 0 then
+    starboard = sway
+  elseif sway < 0 then
+    port = -sway
+  end
+  local bow_port = port
+  local bow_starboard = starboard
+  local stern_port = port
+  local stern_starboard = starboard
+  if spin > 0 then
+    bow_starboard = bow_starboard + spin
+    stern_port = stern_port + spin
+  elseif spin < 0 then
+    bow_port = bow_port - spin
+    stern_starboard = stern_starboard - spin
+  end
+  return bow_port, bow_starboard, stern_port, stern_starboard
 end
 
 -- Thrust is proportional to signed RPM^1.2. Add forces, rather than RPM,

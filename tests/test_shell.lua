@@ -198,7 +198,8 @@ local _, flying = engine_tick.tick(flight, {
   config = cfg,
 })
 A.eq(flight.emergency, false, "an unlatched ship is not forced into emergency")
-A.eq(flying.rsc.rsc10, cfg.hover_step, "an unlatched ship still takes a stick command")
+A.eq(flight.mode, "semi", "a stick does not leave semi")
+A.eq(flying.rsc.rsc17, 0, "a stick does not command the old manual velocity hold")
 
 flight_session.latched = true
 shell.apply_latch(flight_session, flight, nil)
@@ -211,8 +212,8 @@ local _, held = engine_tick.tick(flight, {
   stick_fresh = true,
   config = cfg,
 })
-A.eq(held.rsc.rsc10, 0, "a latched tick zeros the x controller")
-A.eq(held.rsc.rsc11, 0, "a latched tick zeros elevation")
+A.eq(held.rsc.rsc17, 0, "a latched tick zeros the x controller")
+A.eq(held.rsc.rsc16, 0, "a latched tick zeros elevation")
 
 shell.apply_latch(flight_session, flight, { type = "clear_emergency" })
 A.eq(flight_session.latched, false, "clear emergency drops the engine latch before the tick")

@@ -139,7 +139,7 @@ end
 
 local hold_rpm = density_hold(ship.y)
 local blocked_state, blocked_outputs = tick(engine_tick.new_state(), nil, hold_rpm, false)
-A.eq(blocked_state.mode, "idle", "a missing peripheral leaves the boot mode")
+A.eq(blocked_state.mode, "semi", "a missing peripheral leaves the boot mode")
 assert_zero(apply_outputs(blocked_outputs), "not ready")
 print("command center not-ready thrust=0")
 
@@ -180,14 +180,14 @@ A.eq(pending.y, 120, "idle typed altitude")
 A.eq(ui.entered_altitude, 120, "the guide shows the typed altitude")
 local outputs, status
 state, outputs, status = tick(state, pending, hold_rpm, true)
-A.eq(state.mode, "idle", "idle altitude stays idle")
+A.eq(state.mode, "semi", "idle altitude stays idle")
 A.eq(state.altitude, 120, "idle setpoint")
 A.eq(ship.y, 100, "idle hull has not moved")
 local shown = command_status.apply(status)
 A.eq(shown.altitude, 120, "command computer shows the typed altitude")
 A.eq(outputs.relays.relay6, false, "idle reverser off")
 local idle_log = apply_outputs(outputs)
-local idle_rpm = rpm_of(idle_log, "rsc11")
+local idle_rpm = rpm_of(idle_log, "rsc16")
 local idle_vy = elevation_accel(idle_rpm, false, ship.y) * 0.05
 if idle_vy <= 0 then
   error("idle vertical output " .. tostring(idle_rpm) .. " did not climb")
@@ -218,11 +218,12 @@ A.eq(state.stick.x, 1, "the held stick is applied")
 A.eq(outputs.relays.relay6, false, "stick reverser off")
 A.eq(ship.y, 100, "stick hull has not moved")
 local stick_log = apply_outputs(outputs)
-local stick_x = rpm_of(stick_log, "rsc10")
-if stick_x == 0 or stick_x == nil then
-  error("held stick did not fly")
+local stick_x = rpm_of(stick_log, "rsc17")
+A.eq(state.mode, "semi", "stick stays semi")
+if stick_x ~= 0 and stick_x ~= nil then
+  error("held stick commanded the old manual velocity hold")
 end
-local stick_vy = elevation_accel(rpm_of(stick_log, "rsc11"), false, ship.y) * 0.05
+local stick_vy = elevation_accel(rpm_of(stick_log, "rsc16"), false, ship.y) * 0.05
 if stick_vy <= 0 then
   error("stick vertical output did not climb")
 end
@@ -258,7 +259,7 @@ ui, pending = type_altitude(ui, session, nil, {
 })
 state, outputs = tick(state, pending, hold_rpm, true)
 A.eq(state.altitude, 80, "altitude after clear")
-local cleared_vy = elevation_accel(rpm_of(apply_outputs(outputs), "rsc11"), false, ship.y) * 0.05
+local cleared_vy = elevation_accel(rpm_of(apply_outputs(outputs), "rsc16"), false, ship.y) * 0.05
 if cleared_vy >= 0 then
   error("cleared emergency did not descend, vy " .. tostring(cleared_vy))
 end
@@ -272,7 +273,7 @@ pending = deliver(session, pending, { type = "stick", x = 1, y = 0, z = 0 })
 state, outputs = tick(state, pending, hold_rpm, true)
 A.eq(state.altitude, 80, "a rednet stick keeps the altitude")
 A.eq(state.stick.x, 1, "a rednet stick flies")
-local remote_vy = elevation_accel(rpm_of(apply_outputs(outputs), "rsc11"), false, ship.y) * 0.05
+local remote_vy = elevation_accel(rpm_of(apply_outputs(outputs), "rsc16"), false, ship.y) * 0.05
 if remote_vy >= 0 then
   error("rednet altitude did not descend")
 end

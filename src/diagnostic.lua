@@ -4,7 +4,7 @@ local protocol = require("protocol")
 local M = {}
 
 local LOCKED = {
-  rsc11 = true,
+  rsc16 = true,
   relay5 = true,
   relay6 = true,
   relay7 = true,
@@ -38,7 +38,7 @@ function M.apply(selection, hover)
   outputs.diag_relay = nil
   local hover_on = hover ~= nil and hover.enabled == true
   if hover_on then
-    outputs.rsc.rsc11 = require("config").clamp_rpm(hover.rpm)
+    outputs.rsc.rsc16 = require("config").clamp_rpm(hover.rpm)
   end
   selection = selection and protocol.validate(selection.type and selection or setmetatable({type="diagnostic_set"},{__index=selection}))
   if selection == nil then

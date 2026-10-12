@@ -46,8 +46,8 @@ A.eq(north.compass == south.compass, false, "compass follows heading")
 
 local outputs = {
   rsc = {
-    rsc6 = 0, rsc7 = 10, rsc8 = 0, rsc9 = 0,
-    rsc10 = 30, rsc11 = 20,
+    rsc13 = 0, rsc14 = 10, rsc15 = 0, rsc12 = 0,
+    rsc17 = 30, rsc16 = 20,
   },
   relays = { relay7 = true, relay3 = false },
 }
@@ -74,8 +74,8 @@ local colors = {}
 for _, thruster in ipairs(flight.thrusters) do
   colors[thruster.id] = thruster.color
 end
-A.eq(colors.rsc10, "green", "powered thruster")
-A.eq(colors.rsc6, "gray", "idle thruster")
+A.eq(colors.rsc17, "green", "powered thruster")
+A.eq(colors.rsc13, "gray", "idle thruster")
 A.eq(colors.rsc2, nil, "bottom thruster is not on the flight page")
 
 local groups = views.engines(outputs, 256)
@@ -83,12 +83,12 @@ local by_type = {}
 for _, group in ipairs(groups) do
   by_type[group.type] = group
 end
-A.eq(by_type["X axis propellers"].devices[1].rpm, 30, "x rpm")
-A.eq(by_type["Z axis propellers"].devices[1].rpm, 20, "z rpm")
-A.eq(by_type["RCS"].devices[1].name, "RSC 6", "rcs group")
+A.eq(by_type["Thrusters"].devices[1].rpm, 30, "thruster rpm")
+A.eq(by_type["Elevation"].devices[1].rpm, 20, "elevation rpm")
+A.eq(by_type["RCS"].devices[1].name, "RSC 13", "rcs group")
 A.eq(by_type["RCS"].devices[2].rpm, 10, "rcs rpm")
 A.eq(#by_type["RCS"].devices, 4, "side props only")
-A.eq(by_type["Main shaft"].devices[1].rpm, 256, "shaft rpm")
+A.eq(by_type["Elevation RPM"].devices[1].rpm, 256, "speedometer 1 elevation rpm")
 local stress = views.stress(40, 100, outputs)
 A.eq(stress.consumed, 40, "su consumed")
 A.eq(stress.remaining, 60, "su remaining")
@@ -104,13 +104,13 @@ local emergency = {}
 for _, part in ipairs(diagram) do
   emergency[part.label] = part.color
 end
-A.eq(emergency["PB prop"], "red", "cut prop")
-A.eq(emergency["SA side"], "green", "powered side prop")
-A.eq(emergency["PB side"], "gray", "idle side prop")
+A.eq(emergency["Bow starboard"], "green", "powered side prop")
+A.eq(emergency["Bow port"], "gray", "idle side prop")
+A.eq(emergency["Elevation"], "green", "elevation shown")
 A.eq(emergency["PB up"], nil, "bottom thruster is not on the emergency page")
 local placed = {}
 for _, part in ipairs(diagram) do
   placed[part.label] = part
 end
-A.eq(placed["PB prop"].x < placed["SB prop"].x, true, "port is left of starboard")
-A.eq(placed["PB prop"].y < placed["PS prop"].y, true, "bow is ahead of stern")
+A.eq(placed["Bow port"].x < placed["Bow starboard"].x, true, "port is left of starboard")
+A.eq(placed["Bow port"].y < placed["Stern port"].y, true, "bow is ahead of stern")

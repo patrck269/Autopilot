@@ -11,7 +11,7 @@ fs = {getDir=function() return "" end, combine=function(_, b) return b end,
   open=function() return {readAll=function() return "test" end, close=function() end} end}
 shell = {getRunningProgram=function() return "startup.lua" end}
 peripheral = {wrap=function(name)
-  if name == "Create_RotationSpeedController_10" then
+  if name == "Create_RotationSpeedController_17" then
     return {setTargetSpeed=function()
       attempts = attempts + 1
       if attempts <= 2 then error("temporary actuator failure") end

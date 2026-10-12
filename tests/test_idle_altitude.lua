@@ -87,17 +87,17 @@ local function idle_altitude(label, steps, typed, start_y, stick_steps, stick_x,
   local state = engine_tick.new_state()
   local outputs, status, msg, pending
   state, outputs, status = tick(state, nil, hold_rpm)
-  A.eq(state.mode, "idle", label .. " boots in idle")
+  A.eq(state.mode, "semi", label .. " boots in idle")
   A.eq(ship.vy, 0, label .. " boots at rest")
 
   if via_cancel then
     ui, pending, msg = send_key(ui, session, nil, "u", true, false)
     state, outputs, status = tick(state, pending, hold_rpm)
-    A.eq(state.mode, "auto", label .. " leaves idle")
+    A.eq(state.mode, "semi", label .. " leaves idle")
     ui, pending, msg = send_key(ui, session, nil, "k", true, false)
     A.eq(msg.type, "cancel_jobs", label .. " cancel")
     state, outputs, status = tick(state, pending, hold_rpm)
-    A.eq(state.mode, "idle", label .. " cancel returns to idle")
+    A.eq(state.mode, "semi", label .. " cancel returns to idle")
     A.eq(state.altitude_set, false, label .. " cancel clears the armed altitude")
     A.eq(ship.y, start_y, label .. " cancel has not moved the hull")
   end
@@ -120,7 +120,7 @@ local function idle_altitude(label, steps, typed, start_y, stick_steps, stick_x,
   A.eq(state.altitude_set, true, label .. " altitude stays armed")
   A.eq(state.job, "altitude", label .. " tracks the altitude")
   if expect_idle then
-    A.eq(state.mode, "idle", label .. " stays idle")
+    A.eq(state.mode, "semi", label .. " stays idle")
   end
   A.eq(ui.entered_altitude, typed, label .. " command computer keeps the typed altitude")
   A.eq(ship.y, start_y, label .. " hull is still at the old height")
@@ -136,12 +136,11 @@ local function idle_altitude(label, steps, typed, start_y, stick_steps, stick_x,
     A.eq(state.stick.y, 0, label .. " stick y")
     A.eq(state.stick.z, 0, label .. " stick z")
   else
-    if outputs.rsc.rsc10 == 0 then
-      error(label .. " held stick did not fly")
-    end
+    A.eq(state.mode, "semi", label .. " stick stays semi")
+    A.eq(outputs.rsc.rsc17, 0, label .. " stick does not command the old manual velocity hold")
   end
 
-  local vy = elevation_accel(outputs.rsc.rsc11, outputs.relays.relay6 == true) * 0.05
+  local vy = elevation_accel(outputs.rsc.rsc16, outputs.relays.relay6 == true) * 0.05
   if vy * (typed - start_y) <= 0 then
     error(label .. " vertical speed " .. tostring(vy) .. " did not start toward " .. tostring(typed))
   end
