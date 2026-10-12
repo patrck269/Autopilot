@@ -75,10 +75,10 @@ local function integer_rpm(rpm)
 end
 
 -- A powered target change stops and restarts the network: +10 flicker,
--- decaying by one per game tick. The rebuild runs on the server thread, so a
--- burst of them freezes every screen until it returns. Later changes wait
--- for the full hold instead of following on the next tick.
-local FLICKER_LIMIT = 80 -- Reserve room for an immediate stop and propagation.
+-- decaying by one per game tick. Create destroys the controller at 128.
+-- Stop at 20 so a burst has about a hundred points of margin left. Later
+-- changes wait for the full hold instead of following on the next tick.
+local FLICKER_LIMIT = 20
 
 local function flicker_score(name)
   local now = os.clock() -- ComputerCraft game time, including server tick lag.

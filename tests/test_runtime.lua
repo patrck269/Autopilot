@@ -97,9 +97,9 @@ local function until_change(from, rpm)
   return sent
 end
 A.eq(until_change("rpm 99", -400), "rpm 0", "a sign change stops before the reverse")
-A.eq(push(-400), "rpm -99", "the reversed target steps by less than 100")
+A.eq(until_change("rpm 0", -400), "rpm -99", "the reversed target steps by less than 100")
 A.eq(until_change("rpm -99", 90000), "rpm 0", "an opposite over-max command stops first")
-A.eq(push(90000), "rpm 99", "leaving zero after the stop steps by less than 100")
+A.eq(until_change("rpm 0", 90000), "rpm 99", "leaving zero after the stop steps by less than 100")
 
 runtime = reload()
 local fresh_high = recorder()

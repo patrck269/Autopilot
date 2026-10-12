@@ -48,6 +48,9 @@ local ok, failure = pcall(function()
       end
     end
     if writes < 2 then error(scenario .. " did not exercise target changes") end
+    if peak > 40 then
+      error(scenario .. " flicker peak " .. tostring(peak) .. " is too close to Create's destroy score")
+    end
     if scenario == "slowdown" or scenario == "slowdown-budget" then A.eq(actual,430,"slowdown reaches hover") end
     -- Calls without another game tick must not refill the flicker allowance.
     for i = 1, 1000 do
