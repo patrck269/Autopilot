@@ -43,17 +43,25 @@ for _ = 1, 10 do
   state = fly(state, 0, heavy)
 end
 A.eq(state.pid_gains.equilibrium, 430, "two seconds have not passed")
+state.elev_anchor = 500
+state.elev_anchor_y = 120
 local jumped = false
+local climb_rpm = 0
 for _ = 1, 50 do
-  state = fly(state, 0, heavy)
+  local outputs
+  state, outputs = fly(state, 0, heavy)
   if state.lift_jump then
     jumped = true
+    climb_rpm = outputs.rsc.rsc16 or 0
   end
 end
 if state.pid_gains.equilibrium <= 430 then
   error("a grounded heavy hull kept the light-ship hover RPM")
 end
 A.eq(jumped, true, "the new hover RPM is one elevation write")
+if climb_rpm < 1000 then
+  error("a grounded climb stayed at " .. tostring(climb_rpm))
+end
 local raised = state.pid_gains.equilibrium
 print("heavy hull hover RPM rose from 430 to " .. tostring(raised))
 state.altitude = 100

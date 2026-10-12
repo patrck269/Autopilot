@@ -260,7 +260,7 @@ end
 -- forward props use the same scale.
 local LIFT_VY = 0.25
 local LIFT_WAIT = 2
-local LIFT_STEP = 1.5
+local LIFT_STEP = 2
 local LIFT_TRIM = 1.15
 
 local function set_lift_equilibrium(state, eq, cfg)
@@ -327,6 +327,10 @@ local function calibrate_lift(state, ship, cfg, now)
     raised = cap
   end
   if set_lift_equilibrium(state, raised, cfg) then
+    -- The old anchor was learned while the hull was not leaving the ground.
+    -- Leaving it in place pulls the new climb straight back down.
+    state.elev_anchor = nil
+    state.elev_anchor_y = nil
     state.lift_stuck_since = now
   end
 end
