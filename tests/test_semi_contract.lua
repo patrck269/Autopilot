@@ -281,6 +281,15 @@ A.eq(pages.monitor_2, nil, "monitor 2 unbound")
 A.eq(pages.monitor_3, nil, "monitor 3 unbound")
 print("command pages bound only to monitor_4 monitor_5 monitor_6 monitor_7")
 
+local command_src = io.open("programs/command.lua", "rb"):read("a")
+if command_src:find('peripheral.find("monitor")', 1, true) ~= nil then
+  error("the flight program still scans every monitor on the network")
+end
+if command_src:find("monitors.names()", 1, true) == nil then
+  error("the flight program does not limit itself to the named command monitors")
+end
+print("flight display wraps only monitor_4 through monitor_7")
+
 local pocket_program = io.open("programs/pocket.lua", "rb")
 local pocket_ui = io.open("src/pocket_ui.lua", "rb")
 local pocket_install = io.open("install/pocket.lua", "rb")

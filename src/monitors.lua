@@ -1,11 +1,24 @@
 local M = {}
 
-local COMMAND = {
-  monitor_4 = "Flight",
-  monitor_5 = "Navigation",
-  monitor_6 = "Engines",
-  monitor_7 = "Emergency",
+local PAGES = {
+  { "monitor_4", "Flight" },
+  { "monitor_5", "Navigation" },
+  { "monitor_6", "Engines" },
+  { "monitor_7", "Emergency" },
 }
+
+local COMMAND = {}
+for _, item in ipairs(PAGES) do
+  COMMAND[item[1]] = item[2]
+end
+
+function M.names()
+  local names = {}
+  for i, item in ipairs(PAGES) do
+    names[i] = item[1]
+  end
+  return names
+end
 
 function M.assign(list)
   local pages = {}

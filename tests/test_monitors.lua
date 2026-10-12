@@ -20,6 +20,11 @@ A.eq(pages.monitor_2, nil, "monitor 2 is not a command page")
 A.eq(pages.monitor_3, nil, "monitor 3 is not a command page")
 print("command pages bound only to monitor_4 monitor_5 monitor_6 monitor_7")
 
+local names = monitors.names()
+A.eq(#names, 4, "four command monitors")
+A.eq(names[1], "monitor_4", "first command monitor")
+A.eq(names[4], "monitor_7", "last command monitor")
+
 local swapped = monitors.swap(pages, "monitor_4", "monitor_6")
 A.eq(swapped.monitor_4, "Engines", "moved away")
 A.eq(swapped.monitor_6, "Flight", "moved here")

@@ -124,18 +124,18 @@ local screens = {}
 local monitor_frames = {}
 local function attach_monitors()
   screens = {}
-  local found = { peripheral.find("monitor") }
   local list = {}
-  for _, mon in ipairs(found) do
-    mon.setTextScale(0.5)
-    local w, h = mon.getSize()
-    local name = peripheral.getName(mon)
-    list[#list + 1] = { name = name, w = w, h = h }
-    screens[name] = { mon = mon, w = w, h = h }
+  for _, name in ipairs(monitors.names()) do
+    if peripheral.isPresent(name) and peripheral.getType(name) == "monitor" then
+      local mon = peripheral.wrap(name)
+      if mon ~= nil and mon.setTextScale ~= nil and mon.getSize ~= nil then
+        mon.setTextScale(0.5)
+        local w, h = mon.getSize()
+        list[#list + 1] = { name = name, w = w, h = h }
+        screens[name] = { mon = mon, w = w, h = h }
+      end
+    end
   end
-  table.sort(list, function(a, b)
-    return a.name < b.name
-  end)
   return monitors.assign(list)
 end
 
@@ -285,9 +285,10 @@ end
 local function draw_monitors(outputs, sample, stress)
   local groups = views.engines(outputs, shaft_rpm())
   for name, screen in pairs(screens) do
+    local page = pages[name]
+    if page ~= nil then
     local mon = screen.mon
     local w, h = screen.w, screen.h
-    local page = pages[name] or "Systems"
     local canvas = new_canvas(w, h)
     local banner = tostring(state.mode)
     if state.job ~= nil then
@@ -372,6 +373,7 @@ local function draw_monitors(outputs, sample, stress)
     end
     paint_tabs(canvas, w, h, page)
     flush_canvas(name, mon, canvas)
+    end
   end
 end
 
@@ -718,7 +720,7 @@ local function flight_loop()
       request_paint()
     elseif event == "monitor_touch" then
       local screen = screens[a]
-      if screen ~= nil then
+      if screen ~= nil and pages[a] ~= nil then
         local selected = mfd.hit(screen.w, screen.h, b, c)
         if selected ~= nil then
           local other = nil
