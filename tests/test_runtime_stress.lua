@@ -63,6 +63,11 @@ local ok, failure = pcall(function()
     {measured=0,capacity=0})
   A.eq(stress.consumed(applied),0,"known zero shaft capacity permits no load")
   A.eq(actual.rsc16,0,"loss of all capacity stops held elevation immediately")
+  applied = runtime.apply({rsc={rsc16=5000,rsc17=0},relays={}}, devices,
+    {measured=0,capacity=0})
+  if actual.rsc16 == 0 then
+    error("a stopped stressometer kept elevation at 0")
+  end
 end)
 os.clock = real_clock
 if not ok then error(failure) end

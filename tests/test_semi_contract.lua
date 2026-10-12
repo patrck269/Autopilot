@@ -58,6 +58,19 @@ A.eq(cleared.outputs_disabled, false, "clear enables the props again")
 A.eq(cleared.mode, "semi", "emergency clear returns to semi")
 print("emergency clear returns to semi")
 
+local _, dark = engine_tick.tick(fresh(), {
+  ship = ship_at(120, 0),
+  ready = true,
+  config = cfg,
+  su = 0,
+  su_capacity = 0,
+  current_elevation_rpm = 0,
+})
+if (dark.rsc.rsc16 or 0) == 0 then
+  error("a stopped stressometer zeroed every controller")
+end
+print("stopped stressometer still commands elevation " .. tostring(dark.rsc.rsc16))
+
 package.loaded.runtime = nil
 local runtime = require("runtime")
 local mix = require("mix")

@@ -44,10 +44,21 @@ end
 
 function M.budget(measured, capacity, previous)
   local room = M.USABLE
-  if type(capacity) ~= "number" or capacity <= 0 then
-    if capacity == 0 then return 0 end
+  -- Create's network capacity is each source's rating times its speed. A
+  -- stopped shaft therefore reads 0. Treating that as an empty budget commands
+  -- zero RPM forever, so the shaft can never start. Shed the load only when a
+  -- live network drops to 0.
+  if type(capacity) ~= "number" or capacity < 0 then
     return room
   end
+  if capacity == 0 then
+    if (M.network_capacity or 0) > 0 then
+      M.network_capacity = 0
+      return 0
+    end
+    return room
+  end
+  M.network_capacity = capacity
   local external = 0
   if type(measured) == "number" then
     external = measured - (previous or 0)
