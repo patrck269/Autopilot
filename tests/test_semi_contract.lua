@@ -123,6 +123,21 @@ A.eq(climbed.mode, "semi", "altitude stays semi")
 local aimed = step(climbed, { type = "set_bearing", bearing = 1.2 })
 A.eq(aimed.bearing, 1.2, "bearing setpoint")
 A.eq(aimed.mode, "semi", "bearing stays semi")
+local on_heading = ship_at(120, 0)
+on_heading.heading = 1.2
+on_heading.yaw_rate = 1e-8
+local _, quiet = step(fresh(), { type = "set_bearing", bearing = 1.2 }, on_heading)
+for _, name in ipairs({ "rsc12", "rsc13", "rsc14", "rsc15" }) do
+  A.eq(quiet.rsc[name] or 0, 0, "bearing deadzone leaves " .. name .. " alone")
+end
+local off_heading = ship_at(120, 0)
+off_heading.heading = 0
+off_heading.yaw_rate = 0
+local _, turning = step(fresh(), { type = "set_bearing", bearing = 0.5 }, off_heading)
+if (turning.rsc.rsc14 or 0) <= 0.01 or (turning.rsc.rsc15 or 0) <= 0.01 then
+  error("a real bearing error did not command the pullers")
+end
+print("bearing deadzone drops sub-0.01 rpm and a real error still pulls")
 local reversed = step(aimed, { type = "set_speed", speed = -12 }, ship_at(120, 0))
 A.eq(reversed.target_speed, -12, "reverse thrust setpoint")
 A.eq(reversed.ramp_rate, speed.ramp_rate(0, -12), "reverse ramp")

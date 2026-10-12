@@ -52,12 +52,24 @@ function M.bearing_rpm(error_rad, mass)
   return M.rcs_rpm(portion, mass)
 end
 
+-- Below this the damper is chasing numerical noise, not a real heading error.
+local YAW_RPM_DEADZONE = 0.05
+
 function M.yaw_rpm(error_rad, yaw_rate, mass, damping)
   local portion = 0
   if math.abs(error_rad) >= 0.02 then portion = error_rad / math.pi end
   portion = math.max(-1, math.min(1, portion - (yaw_rate or 0) * (damping or 2)))
+  if portion == 0 then
+    return 0
+  end
   local rpm = M.rcs_rpm(portion, mass)
-  return portion < 0 and -rpm or rpm
+  if portion < 0 then
+    rpm = -rpm
+  end
+  if math.abs(rpm) < YAW_RPM_DEADZONE then
+    return 0
+  end
+  return rpm
 end
 
 function M.rcs_rpm(stick, mass)
