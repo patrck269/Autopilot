@@ -251,9 +251,11 @@ local function learn_elev_scale(state, ship, held_rpm)
   arm_elev_window(state, ship, held_rpm, now)
 end
 
--- 430 RPM is the light-hull hover. A heavier ship does not leave the ground
--- there. While this hull is asked to climb and is not rising, raise that
--- sea-level equilibrium by half, no more than once every two seconds.
+-- 430 RPM is the light-hull hover. Clockwork propeller force depends on
+-- blade length, pitch, and rotational speed, and each prop is force-capped,
+-- so ship mass does not convert to an RPM. While this hull is asked to climb
+-- and is not rising, raise that sea-level equilibrium by half, no more than
+-- once every two seconds. Side and forward props use the same scale.
 local LIFT_VY = 0.25
 local LIFT_WAIT = 2
 local LIFT_STEP = 1.5
@@ -963,12 +965,22 @@ function M.tick(state, input)
   if state.hover_rpm == 0 and (vertical == "descend" or vertical == "reverse") then
     state.hover_rpm = cfg.climb_rpm * 0.25
   end
+  -- The 100000 N curve in the RPM helpers is a control gain, not Clockwork
+  -- thrust. Keep it on the tuned mass. The learned hover RPM carries the
+  -- heavy-hull scale instead.
   local mass = cfg.ship_mass
   state.lift_jump = false
   if type(input.ship_mass) == "number" and input.ship_mass > 0 then
-    mass = input.ship_mass
-    state.ship_mass = mass
+    state.ship_mass = input.ship_mass
     calibrate_lift(state, ship, cfg, os.clock())
+  end
+  local function prop_equilibrium()
+    local base = cfg.hover_equilibrium or 430
+    if state.pid_gains ~= nil and type(state.pid_gains.equilibrium) == "number"
+        and state.pid_gains.equilibrium > 0 then
+      return state.pid_gains.equilibrium
+    end
+    return base
   end
   local target_y = state.altitude
   if state.job == nil and state.mode == "auto" and not state.altitude_set
@@ -1279,8 +1291,9 @@ function M.tick(state, input)
       cfg.velocity_response or 1,
       feed
     )
-    rsc17 = control.prop_rpm(accel, cfg.hover_equilibrium) * pid.thrust_scale(ship.y)
-    relay2 = speed.relay2_level(rsc17, cfg.hover_equilibrium)
+    local eq = prop_equilibrium()
+    rsc17 = control.prop_rpm(accel, eq) * pid.thrust_scale(ship.y)
+    relay2 = speed.relay2_level(rsc17, eq)
   end
   rsc17 = config.clamp_rpm(rsc17)
   outputs.rsc.rsc17 = rsc17
@@ -1334,6 +1347,13 @@ function M.tick(state, input)
   if not (state.mode == "manual" and state.stick.y ~= 0) then
     local yaw_err = wrap((state.bearing or 0) - (ship.heading or 0))
     local spin = manual.yaw_rpm(yaw_err, ship.yaw_rate, mass, cfg.yaw_damping)
+    local base_eq = cfg.hover_equilibrium or 430
+    if spin ~= 0 and base_eq > 0 then
+      local prop_scale = prop_equilibrium() / base_eq
+      if prop_scale > 1 then
+        spin = spin * prop_scale
+      end
+    end
     if spin ~= 0 then
       local y13, y14, y15, y12 = mix.sides(0, spin, 1)
       outputs.rsc.rsc13 = mix.add_rpm(outputs.rsc.rsc13, y13)

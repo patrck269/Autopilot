@@ -72,6 +72,7 @@ function M.yaw_rpm(error_rad, yaw_rate, mass, damping)
   return rpm
 end
 
+-- Control gain only. Clockwork propeller thrust is not 100000 N at 256 RPM.
 function M.rcs_rpm(stick, mass)
   if stick == 0 then
     return 0

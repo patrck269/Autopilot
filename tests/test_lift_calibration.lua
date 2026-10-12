@@ -62,29 +62,35 @@ A.eq(state.pid_gains.equilibrium, raised, "a rising hull keeps the RPM that lift
 A.eq(state.lift_locked, true, "lift calibration locks after the hull rises")
 print("heavy hull hover RPM rose from 430 to " .. tostring(raised))
 
-local function yaw_at(mass)
-  local fresh = engine.new_state()
-  fresh.seeded = true
-  fresh.bearing = 1
-  fresh.bearing_set = true
-  fresh.altitude = 120
-  fresh.altitude_set = true
-  fresh.job = "altitude"
-  local _, outputs = engine.tick(fresh, {
-    ship = hull(120, 0),
-    ready = true,
-    config = cfg,
-    ship_mass = mass,
-    current_elevation_rpm = 430,
-  })
-  return math.abs(outputs.rsc.rsc14 or 0)
+state.bearing = 1
+state.bearing_set = true
+local _, scaled = engine.tick(state, {
+  ship = hull(120, 1),
+  ready = true,
+  config = cfg,
+  ship_mass = heavy,
+  current_elevation_rpm = 800,
+})
+local fresh = engine.new_state()
+fresh.seeded = true
+fresh.bearing = 1
+fresh.bearing_set = true
+fresh.altitude = 120
+fresh.altitude_set = true
+fresh.job = "altitude"
+local _, unscaled = engine.tick(fresh, {
+  ship = hull(120, 0),
+  ready = true,
+  config = cfg,
+  ship_mass = heavy,
+  current_elevation_rpm = 430,
+})
+local scaled_yaw = math.abs(scaled.rsc.rsc14 or 0)
+local base_yaw = math.abs(unscaled.rsc.rsc14 or 0)
+if scaled_yaw <= base_yaw then
+  error("learned hover scale did not raise the clockwork props, scaled " .. tostring(scaled_yaw) .. " base " .. tostring(base_yaw))
 end
-local light = yaw_at(heavy)
-local tuned = yaw_at(nil)
-if light >= tuned then
-  error("live mass did not reduce the RCS command, light " .. tostring(light) .. " tuned " .. tostring(tuned))
-end
-print("rcs at live mass " .. tostring(light) .. " versus tuned mass " .. tostring(tuned))
+print("clockwork yaw after lift scale " .. tostring(scaled_yaw) .. " versus base " .. tostring(base_yaw))
 
 package.loaded.runtime = nil
 runtime = require("runtime")
