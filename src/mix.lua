@@ -39,33 +39,32 @@ function M.elevation(vertical, hover_rpm, climb_rpm)
   return hover_rpm, false
 end
 
--- All four RCS pull on positive RPM. Bow port 13, bow starboard 14,
--- stern port 15, stern starboard 12. A bow pull is toward that side.
--- A stern pull is the other way: positive RPM on the stern port pulls
--- the stern to starboard, and positive RPM on the stern starboard pulls
--- the stern to port. Same-side positive RPM yaws. Opposite corners strafe.
--- Positive vy is starboard. Positive yaw swings the bow to starboard.
+-- All four RCS are pullers. Positive RPM pulls toward that thruster.
+-- Bow port 13, bow starboard 14, stern port 15, stern starboard 12.
+-- A left turn pulls bow port and stern starboard. A right turn pulls
+-- bow starboard and stern port. A strafe pulls both thrusters on that side.
+-- Positive vy is starboard. Positive yaw is a right turn.
 -- Returns bow port, bow starboard, stern port, stern starboard.
 function M.sides(vy, yaw, gain)
   local sway = vy * gain
   local spin = yaw * gain
-  local bow_port = 0
-  local bow_starboard = 0
-  local stern_port = 0
-  local stern_starboard = 0
+  local port = 0
+  local starboard = 0
   if sway > 0 then
-    bow_starboard = sway
-    stern_port = sway
+    starboard = sway
   elseif sway < 0 then
-    bow_port = -sway
-    stern_starboard = -sway
+    port = -sway
   end
+  local bow_port = port
+  local bow_starboard = starboard
+  local stern_port = port
+  local stern_starboard = starboard
   if spin > 0 then
     bow_starboard = bow_starboard + spin
-    stern_starboard = stern_starboard + spin
+    stern_port = stern_port + spin
   elseif spin < 0 then
     bow_port = bow_port - spin
-    stern_port = stern_port - spin
+    stern_starboard = stern_starboard - spin
   end
   return bow_port, bow_starboard, stern_port, stern_starboard
 end

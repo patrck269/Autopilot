@@ -21,7 +21,7 @@ end
 
 local function torque(outputs)
   local r = outputs.rsc
-  return force(r.rsc14 or 0)+force(r.rsc12 or 0)-force(r.rsc13 or 0)-force(r.rsc15 or 0)
+  return force(r.rsc14 or 0)+force(r.rsc15 or 0)-force(r.rsc13 or 0)-force(r.rsc12 or 0)
 end
 local _, coasting = tick(0, .1)
 if torque(coasting) >= 0 then error("heading deadband must still brake positive yaw velocity") end
@@ -33,11 +33,11 @@ local _, braking = tick(0)
 local _, turning = tick(.5)
 local function sway(outputs)
   local r = outputs.rsc
-  return force(r.rsc14 or 0)+force(r.rsc15 or 0)-force(r.rsc13 or 0)-force(r.rsc12 or 0)
+  return force(r.rsc14 or 0)+force(r.rsc12 or 0)-force(r.rsc13 or 0)-force(r.rsc15 or 0)
 end
 A.near(sway(turning), sway(braking), .0001, "bearing correction preserves lateral braking force")
 local r = turning.rsc
-if torque(turning) <= 0 then
+if force(r.rsc14 or 0)+force(r.rsc15 or 0)-force(r.rsc13 or 0)-force(r.rsc12 or 0) <= 0 then
   error("combined command must still turn toward the bearing")
 end
 

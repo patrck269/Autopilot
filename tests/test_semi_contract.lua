@@ -200,7 +200,7 @@ local off_heading = ship_at(120, 0)
 off_heading.heading = 0
 off_heading.yaw_rate = 0
 local _, turning = step(fresh(), { type = "set_bearing", bearing = 0.5 }, off_heading)
-if (turning.rsc.rsc14 or 0) <= 0.01 or (turning.rsc.rsc12 or 0) <= 0.01 then
+if (turning.rsc.rsc14 or 0) <= 0.01 or (turning.rsc.rsc15 or 0) <= 0.01 then
   error("a real bearing error did not command the pullers")
 end
 print("bearing deadzone drops sub-0.01 rpm and a real error still pulls")
@@ -216,11 +216,11 @@ end
 
 local starboard_state, starboard = lateral(1)
 A.eq(starboard_state.mode, "semi", "starboard demand stays semi")
-if not (starboard.rsc.rsc14 > 0 and starboard.rsc.rsc15 > 0) then
-  error("starboard pullers 14 and 15 were not positive")
+if not (starboard.rsc.rsc14 > 0 and starboard.rsc.rsc12 > 0) then
+  error("starboard pullers 14 and 12 were not positive")
 end
-if (starboard.rsc.rsc13 or 0) > 0 or (starboard.rsc.rsc12 or 0) > 0 then
-  error("starboard command pulled the portward pair")
+if (starboard.rsc.rsc13 or 0) > 0 or (starboard.rsc.rsc15 or 0) > 0 then
+  error("starboard command wrote a port pull")
 end
 print(string.format(
   "starboard lateral rsc14=%s rsc12=%s rsc13=%s rsc15=%s",
@@ -230,11 +230,11 @@ print(string.format(
 
 local port_state, port = lateral(-1)
 A.eq(port_state.mode, "semi", "port demand stays semi")
-if not (port.rsc.rsc13 > 0 and port.rsc.rsc12 > 0) then
-  error("port pullers 13 and 12 were not positive")
+if not (port.rsc.rsc13 > 0 and port.rsc.rsc15 > 0) then
+  error("port pullers 13 and 15 were not positive")
 end
-if (port.rsc.rsc14 or 0) > 0 or (port.rsc.rsc15 or 0) > 0 then
-  error("port command pulled the starboard pair")
+if (port.rsc.rsc14 or 0) > 0 or (port.rsc.rsc12 or 0) > 0 then
+  error("port command wrote a starboard pull")
 end
 print(string.format(
   "port lateral rsc13=%s rsc15=%s rsc14=%s rsc12=%s",
