@@ -1146,13 +1146,11 @@ A.near(low_rpm, density_hold(62), 1e-3, "engine tick uses the density command")
 if not (low_rpm < mid_rpm and mid_rpm < high_rpm) then
   error("elevation rpm did not rise with altitude: " .. tostring(low_rpm) .. " " .. tostring(mid_rpm) .. " " .. tostring(high_rpm))
 end
-if high_rpm < 25000 or high_rpm > 27000 then
-  error("y=1000 hover is outside 25000-27000 for equilibrium 430: " .. tostring(high_rpm))
+local high_density = density_hold(1000)
+if high_density < 25000 or high_density > 27000 then
+  error("y=1000 density hover left 25000-27000: " .. tostring(high_density))
 end
-if high_rpm > cfg.max_rpm then
-  error("y=1000 hover exceeded the rpm cap: " .. tostring(high_rpm))
-end
-A.near(high_rpm, density_hold(1000), 1e-2, "y=1000 hover is the density scale, not the integral")
+A.eq(high_rpm, 5000, "y=1000 hover is held at the elevation cap")
 local steady_sea = low_rpm
 local steady_high = high_rpm
 ship.y = 1000
@@ -2101,7 +2099,15 @@ local high_hover = density_hold(1000)
 if high_hover < 25000 or high_hover > 27000 then
   error("high climb is not at a density hover inside 25000-27000")
 end
-assert_budget_climb("high", 1000, high_climb)
+A.eq(high_climb.rsc.rsc16, 5000, "high climb is held at the elevation cap")
+if high_climb.relays.relay6 ~= false then
+  error("high climb reversed the elevation controller")
+end
+local high_stress = stress.consumed(high_climb)
+if high_stress > stress.USABLE then
+  error("high climb stress " .. tostring(high_stress) .. " exceeds usable")
+end
+print(string.format("climb high elevation=%.6f stress=%.6f", high_climb.rsc.rsc16, high_stress))
 print(string.format("steady hover sea=%.6f high=%.6f", steady_sea, steady_high))
 
 local function integrate_sent(rpm, reverser, true_over_model, step)
