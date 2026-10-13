@@ -1150,7 +1150,7 @@ local high_density = density_hold(1000)
 if high_density < 25000 or high_density > 27000 then
   error("y=1000 density hover left 25000-27000: " .. tostring(high_density))
 end
-A.eq(high_rpm, 4000, "y=1000 hover is held at the elevation cap")
+A.eq(high_rpm, 3000, "y=1000 hover is held at the elevation cap")
 local steady_sea = low_rpm
 local steady_high = high_rpm
 ship.y = 1000
@@ -2099,7 +2099,7 @@ local high_hover = density_hold(1000)
 if high_hover < 25000 or high_hover > 27000 then
   error("high climb is not at a density hover inside 25000-27000")
 end
-A.eq(high_climb.rsc.rsc16, 4000, "high climb is held at the elevation cap")
+A.eq(high_climb.rsc.rsc16, 3000, "high climb is held at the elevation cap")
 if high_climb.relays.relay6 ~= false then
   error("high climb reversed the elevation controller")
 end

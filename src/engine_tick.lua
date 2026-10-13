@@ -128,7 +128,9 @@ local function arm_elev_window(state, ship, held_rpm, now)
   state.elev_window_ticks = 0
 end
 
-local function learn_elev_scale(state, ship, held_rpm)
+local set_lift_equilibrium
+
+local function learn_elev_scale(state, ship, held_rpm, cfg)
   if ship == nil or ship.vy == nil or ship.y == nil or state.pid_gains == nil then
     return
   end
@@ -176,7 +178,7 @@ local function learn_elev_scale(state, ship, held_rpm)
     return
   end
   local measured = actual_dv / wall
-  if measured > 8 or measured < -8 then
+  if measured > 200 or measured < -80 then
     arm_elev_window(state, ship, held_rpm, now)
     return
   end
@@ -199,6 +201,17 @@ local function learn_elev_scale(state, ship, held_rpm)
   -- The live hull hovers well below the density curve. A sample outside a
   -- narrow band is still the equilibrium, and dropping it leaves every mode
   -- commanding a climb.
+  -- Stronger props make the old hover RPM a climb. One clear sample is
+  -- enough to store the RPM that is actually holding the hull.
+  if sample > 4 and ship.vy > 0.05 then
+    local height_scale = pid.thrust_scale(ship.y)
+    if height_scale > 0 then
+      set_lift_equilibrium(state, true_eq / height_scale, cfg, 32)
+    end
+    state.lift_hover = true_eq
+    arm_elev_window(state, ship, held_rpm, now)
+    return
+  end
   if sample < 0.5 or sample > 4 then
     arm_elev_window(state, ship, held_rpm, now)
     return
@@ -233,7 +246,12 @@ local function learn_elev_scale(state, ship, held_rpm)
   local delta = 0.5 * (sample - prev)
   local cap = 0.04
   if math.abs(sample - prev) > 0.25 then
-    cap = 0.35
+    cap = math.abs(sample - prev) * 0.5
+    if cap < 0.35 then
+      cap = 0.35
+    elseif cap > 2 then
+      cap = 2
+    end
   end
   if delta > cap then
     delta = cap
@@ -262,8 +280,10 @@ local LIFT_WAIT = 2
 local LIFT_STEP = 2
 local LIFT_TRIM = 1.15
 
-local function set_lift_equilibrium(state, eq, cfg)
-  local floor_rpm = cfg.hover_equilibrium or 430
+set_lift_equilibrium = function(state, eq, cfg, floor_rpm)
+  if floor_rpm == nil then
+    floor_rpm = cfg.hover_equilibrium or 430
+  end
   local cap = cfg.max_rpm or 32769
   if eq < floor_rpm then
     eq = floor_rpm
@@ -566,7 +586,7 @@ end
 
 local SIDE_NAMES = { "rsc13", "rsc14", "rsc15", "rsc12" }
 local RCS_RPM_CAP = 2500
-local ELEVATION_RPM_CAP = 4000
+local ELEVATION_RPM_CAP = 3000
 
 -- hold_stop sizes rpm for one propeller. Four signed props share that force.
 local function share_rpm(rpm, props)
@@ -1088,7 +1108,7 @@ function M.tick(state, input)
       y_hold = rest_elevation()
     end
     local intended = accel_from_rpm(y_hold, state.pid_gains.equilibrium, ship.y)
-    learn_elev_scale(state, ship, input.current_elevation_rpm)
+    learn_elev_scale(state, ship, input.current_elevation_rpm, cfg)
     if state.elev_scale ~= nil and math.abs(state.elev_scale - 1) > 1e-6 then
       y_hold = config.clamp_rpm(y_hold / state.elev_scale)
     end
@@ -1145,7 +1165,7 @@ function M.tick(state, input)
     state.job == "altitude" or (state.mode == "semi" and state.altitude_set)
   )
   if track_altitude then
-    learn_elev_scale(state, ship, input.current_elevation_rpm)
+    learn_elev_scale(state, ship, input.current_elevation_rpm, cfg)
     local integral_before = state.pid_integral
     local rpm, integral, rev = pid.command(
       state.pid_gains,
@@ -1343,7 +1363,7 @@ function M.tick(state, input)
         and math.abs(input.current_elevation_rpm - state.hover_rpm) <= 1 then
       state.elev_cmd = state.hover_rpm
     end
-    learn_elev_scale(state, ship, input.current_elevation_rpm)
+    learn_elev_scale(state, ship, input.current_elevation_rpm, cfg)
   end
 
   local rsc17, relay2 = mix.x(vx, ref)

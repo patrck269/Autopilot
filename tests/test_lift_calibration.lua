@@ -123,4 +123,44 @@ runtime.jump("rsc16")
 runtime.apply({ rsc = { rsc16 = 5000 }, relays = {} }, { rsc16 = device })
 A.eq(sent, 5000, "a lift jump writes the full elevation command")
 
+local strong = engine.new_state()
+strong.seeded = true
+strong.altitude = 120
+strong.altitude_set = true
+strong.job = "altitude"
+strong.hover_rpm = 430
+strong.pid_gains = pid.calibrate(430, 0.05)
+local shaft = 430
+local y = 120
+local vy = 0.2
+local true_hover = 80
+now = now + 0.05
+local strong_out
+strong, strong_out = engine.tick(strong, {
+  ship = hull(y, vy),
+  ready = true,
+  config = cfg,
+  current_elevation_rpm = shaft,
+})
+if strong.elev_cmd ~= nil then
+  shaft = strong.elev_cmd
+end
+for _ = 1, 20 do
+  now = now + 0.05
+  strong, strong_out = engine.tick(strong, {
+    ship = hull(y, vy),
+    ready = true,
+    config = cfg,
+    current_elevation_rpm = shaft,
+  })
+  if shaft > 0 then
+    vy = vy + (10 * ((shaft / true_hover) ^ 1.2) - 10) * 0.05
+    y = y + vy * 0.05
+  end
+end
+if strong.pid_gains.equilibrium >= 300 then
+  error("stronger elevation props left the hover RPM at " .. tostring(strong.pid_gains.equilibrium))
+end
+A.eq(strong_out.rsc.rsc16 <= 3000, true, "elevation stays within 3000")
+
 os.clock = old_clock
