@@ -30,7 +30,7 @@ local ok, failure = pcall(function()
       })
       runtime.apply(outputs,devices,{budget=require("stress").USABLE})
       local torque = force(actual.rsc14)+force(actual.rsc15)-force(actual.rsc13)-force(actual.rsc12)
-      -- The RCS cap is 1000 RPM. This gain keeps that couple able to settle
+      -- The RCS cap is 2500 RPM. This gain keeps that couple able to settle
       -- the same headings the uncapped law used to settle.
       rate = rate + torque*320/(cfg.ship_mass*400)*.05
       heading = heading + rate*.05

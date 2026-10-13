@@ -101,11 +101,11 @@ local _, unscaled = engine.tick(fresh, {
 })
 local scaled_yaw = math.abs(scaled.rsc.rsc14 or 0)
 local base_yaw = math.abs(unscaled.rsc.rsc14 or 0)
-A.eq(scaled_yaw, 1000, "a right turn caps bow starboard at 1000")
-A.eq(math.abs(scaled.rsc.rsc15 or 0), 1000, "a right turn caps stern port at 1000")
+A.eq(scaled_yaw, 2500, "a right turn caps bow starboard at 2500")
+A.eq(math.abs(scaled.rsc.rsc15 or 0), 2500, "a right turn caps stern port at 2500")
 A.eq(scaled.rsc.rsc13 or 0, 0, "a right turn leaves bow port off")
 A.eq(scaled.rsc.rsc12 or 0, 0, "a right turn leaves stern starboard off")
-A.eq(base_yaw, 1000, "the uncapped yaw law is held at 1000")
+A.eq(base_yaw, 2500, "the uncapped yaw law is held at 2500")
 if math.abs(scaled.rsc.rsc16 or 0) == 1000 and math.abs(scaled.rsc.rsc17 or 0) == 1000 then
   error("the rcs cap also limited elevation and the rear thrusters")
 end
