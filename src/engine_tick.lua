@@ -566,6 +566,7 @@ local function clamp_outputs(outputs)
 end
 
 local SIDE_NAMES = { "rsc13", "rsc14", "rsc15", "rsc12" }
+local RCS_RPM_CAP = 1000
 
 -- hold_stop sizes rpm for one propeller. Four signed props share that force.
 local function share_rpm(rpm, props)
@@ -586,6 +587,19 @@ local function apply_side_brake(outputs, rpm)
   outputs.rsc.rsc14 = rsc14
   outputs.rsc.rsc15 = rsc15
   outputs.rsc.rsc12 = rsc12
+end
+
+local function cap_side_rpm(outputs)
+  for _, name in ipairs(SIDE_NAMES) do
+    local rpm = outputs.rsc[name]
+    if rpm ~= nil then
+      if rpm > RCS_RPM_CAP then
+        outputs.rsc[name] = RCS_RPM_CAP
+      elseif rpm < -RCS_RPM_CAP then
+        outputs.rsc[name] = -RCS_RPM_CAP
+      end
+    end
+  end
 end
 
 local function apply_side_signs(outputs, cfg)
@@ -1408,6 +1422,7 @@ function M.tick(state, input)
     end
   end
   apply_side_signs(outputs, cfg)
+  cap_side_rpm(outputs)
   -- A failed corner is handled by cutoffs. Reversing the surviving props
   -- would turn the remaining upward lift into additional downward force.
   outputs.relays.relay6 = elev_reverse == true
