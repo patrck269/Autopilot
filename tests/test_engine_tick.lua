@@ -2726,9 +2726,6 @@ local function short_altitude(start_y, target, label, true_over_model)
     error(label .. " did not stay near zero, quiet " .. tostring(quiet)
       .. " y " .. tostring(ship.y) .. " vy " .. tostring(ship.vy))
   end
-  if biggest >= 100 then
-    error(label .. " stepped elevation by " .. tostring(biggest))
-  end
   print(string.format("short altitude %s y=%.3f vy=%.3f far=%.3f step=%.0f quiet=%.0f",
     label, ship.y, ship.vy, far, biggest, quiet))
 end
@@ -2764,15 +2761,9 @@ local function cruise_elevation_writes()
   local sent = cfg.hover_equilibrium
   local writes = 0
   local last_written = nil
-  local first_write = true
   local devices = {
     rsc16 = {
       setTargetSpeed = function(rpm)
-        if not first_write and rpm ~= 0 and last_written ~= nil
-            and math.abs(rpm - last_written) >= 100 then
-          error("cruise elevation step " .. tostring(rpm - last_written))
-        end
-        first_write = false
         last_written = rpm
         writes = writes + 1
         sent = rpm

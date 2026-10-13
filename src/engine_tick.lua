@@ -20,7 +20,6 @@ local M = {}
 local HOLD_WINDOW = 1.5
 local ACCEL_CAP = 4
 local HOLD_ROOM = 2
-local ELEV_STEP = 99
 
 local function clamp_accel(accel)
   if accel > ACCEL_CAP then
@@ -1111,7 +1110,7 @@ function M.tick(state, input)
       local scale = device_scale(state.elev_scale)
       -- Recompute every tick. A captured brake stays at the opening cut after
       -- the speed is already gone, and the hold then builds the opposite swing.
-      local accel = -(ship.vy * math.abs(ship.vy)) / 1.2
+      local accel = -ship.vy / HOLD_WINDOW
       if accel > ACCEL_CAP then
         accel = ACCEL_CAP
       elseif accel < -ACCEL_CAP then
@@ -1237,10 +1236,9 @@ function M.tick(state, input)
         end
       end
       -- The shaft, not the last request, is what is holding the ship. The
-      -- request can walk one step per tick while the runtime holds an integer
-      -- for the whole window, and a stop planned from the request falls through.
-      -- A read that never moves is not the shaft; tests pin it, and following
-      -- that pin orders the same step on every tick.
+      -- runtime holds one integer for the whole window, and a stop planned
+      -- from the request falls through. A read that never moves is not the
+      -- shaft; tests pin it.
       local shaft = input.current_elevation_rpm
       if shaft ~= nil and state.descent_shaft ~= nil and math.abs(shaft - state.descent_shaft) > 1 then
         state.descent_shaft_live = true
@@ -1262,21 +1260,32 @@ function M.tick(state, input)
       local settling = gap_left < 24 and raw_vy > -2
       if not settling and ship.y > target_y + HOLD_ROOM and raw_vy < -0.05 and held ~= nil and held > 0 then
         local desired = rpm_for_accel(requested, state.pid_gains.equilibrium, ship.y) / scale
-        if desired > held + ELEV_STEP then
-          desired = held + ELEV_STEP
-        elseif desired < held - ELEV_STEP then
-          desired = held - ELEV_STEP
-        end
         local function choice_ok(rpm_choice)
           return rpm_choice > 0 and descent_step_stops(
             ship.y, raw_vy, target_y, rpm_choice, state.pid_gains.equilibrium, scale
           )
         end
+        -- Use the whole requested RPM when it still stops. When a cut is too
+        -- deep, use the lowest RPM that stops instead of walking by 99.
         local choice = desired
-        if choice <= 0 or not choice_ok(choice) then
-          choice = held
-          if choice <= 0 or not choice_ok(choice) then
-            choice = held + ELEV_STEP
+        if held ~= nil and held > 0 and not choice_ok(desired) and choice_ok(held) then
+          local low = math.min(math.max(desired, 0), held)
+          local high = math.max(desired, held)
+          choice = high
+          for _ = 1, 16 do
+            local mid = (low + high) / 2
+            if choice_ok(mid) then
+              choice = mid
+              high = mid
+            else
+              low = mid
+            end
+          end
+        elseif desired <= 0 or not choice_ok(desired) then
+          if held ~= nil and choice_ok(held) then
+            choice = held
+          elseif desired > 0 then
+            choice = desired
           end
         end
         rpm = config.clamp_rpm(choice)

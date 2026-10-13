@@ -32,7 +32,7 @@ local ok, failure = pcall(function()
   if actual.rsc17 >= 10000 then error("forward increase must wait for held lift to free stress") end
   now = 2
   applied = apply({rsc16=200,rsc17=10000})
-  A.eq(applied.rsc.rsc16, 25901, "elevation changes in bounded steps")
+  A.eq(applied.rsc.rsc16, 200, "elevation drops to the requested rpm once the hold opens")
   -- Move a near-full allocation from forward propulsion to elevation. Every
   -- hardware write must remain safe, including the intermediate write order.
   now = 4

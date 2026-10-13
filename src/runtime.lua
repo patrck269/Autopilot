@@ -29,7 +29,7 @@ local flicker_clock = {}
 -- on every tick rebuilds the kinetic network and fills the flicker budget.
 local seen_speed = {}
 -- relax() arms one apply that does not adopt the stopped controller, so the
--- next elevation command is a first write rather than a 99 RPM step from 0.
+-- next elevation command is a first write.
 local fresh = false
 
 local function forget(name)
@@ -52,8 +52,8 @@ end
 
 local jump_names = {}
 
--- The next apply of this controller is a first write. A heavier hull has to
--- take a new hover RPM in one change; stepping by 99 would leave it on the ground.
+-- The next apply of this controller is a first write, so a new hover RPM
+-- is not held back by the previous integer.
 function M.jump(name)
   if type(name) ~= "string" then
     return
@@ -141,24 +141,7 @@ local function hold_open(name, hold)
   return hold <= 0
 end
 
--- Retain the elevation slew limit for flight behavior. Create has no
--- 100-RPM destruction threshold; every changed integer costs flicker.
 local ELEVATION = "rsc16"
-local ELEVATION_STEP = 99
-
-local function limit_step(name, previous, sending)
-  if name ~= ELEVATION or previous == nil or sending == 0 then
-    return sending
-  end
-  local delta = sending - previous
-  if delta >= 100 then
-    return previous + ELEVATION_STEP
-  end
-  if delta <= -100 then
-    return previous - ELEVATION_STEP
-  end
-  return sending
-end
 
 local function signs_differ(previous, wanted)
   return previous ~= 0 and wanted ~= 0 and ((previous > 0) ~= (wanted > 0))
@@ -199,7 +182,7 @@ local function apply_targets(outputs, devices, options)
       local hold = hold_for[name] or 0
       local sending = wanted
       if previous == nil then
-        sending = limit_step(name, previous, sending)
+        sending = wanted
       elseif wanted == previous then
         if hold > 0 then
           hold_for[name] = hold - 1
@@ -214,7 +197,7 @@ local function apply_targets(outputs, devices, options)
           end
         end
       elseif wanted == 0 or hold_open(name, hold) then
-        sending = limit_step(name, previous, wanted)
+        sending = wanted
       else
         sending = previous
         if hold > 0 then
@@ -231,18 +214,25 @@ local function apply_targets(outputs, devices, options)
   local budget_room
   if options then
     -- Budget the integers that will actually be held together, rather than
-    -- the requested outputs that the hold or elevation step may postpone.
+    -- the requested outputs that the hold may postpone.
     local room = options.budget or stress.budget(options.measured, options.capacity,
       stress.consumed({rsc=previous_targets}))
     budget_room = room
+    local requested = {}
+    for name, rpm in pairs(applied.rsc) do
+      requested[name] = rpm
+    end
     stress.limit_budget(applied, room)
     for name, rpm in pairs(applied.rsc) do
       rpm = integer_rpm(rpm)
       local previous = previous_targets[name]
-      if name == ELEVATION and previous ~= nil and rpm ~= 0
+      local asked = requested[name]
+      -- A capacity cut that is still far from the shaft cannot wait out the
+      -- hold. Zero is the immediate stop. The flight law's own change, of
+      -- any size, is sent once the hold is open.
+      if name == ELEVATION and previous ~= nil and asked ~= nil and rpm ~= 0
+          and math.abs(rpm) < math.abs(asked)
           and math.abs(rpm - previous) >= 100 then
-        -- An abrupt loss of capacity cannot be solved by holding an unsafe
-        -- elevation speed. Zero is the actuator's permitted immediate stop.
         rpm = 0
       end
       applied.rsc[name] = rpm

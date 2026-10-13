@@ -72,9 +72,6 @@ for n = 1, 200 do
     local number = tonumber(string.match(sent, "%-?%d+"))
     if number ~= previous then
       changes = changes + 1
-      if math.abs(number - previous) >= 100 and number ~= 0 then
-        error("elevation step " .. tostring(number - previous))
-      end
       previous = number
     end
   end
@@ -95,11 +92,11 @@ local function until_change(from, rpm)
   end
   return sent
 end
-A.eq(until_change("rpm 0", 400), "rpm 99", "leaving zero steps by less than 100")
-A.eq(until_change("rpm 99", -400), "rpm 0", "a sign change stops before the reverse")
-A.eq(until_change("rpm 0", -400), "rpm -99", "the reversed target steps by less than 100")
-A.eq(until_change("rpm -99", 90000), "rpm 0", "an opposite over-max command stops first")
-A.eq(until_change("rpm 0", 90000), "rpm 99", "leaving zero after the stop steps by less than 100")
+A.eq(until_change("rpm 0", 400), "rpm 400", "leaving zero writes the full target")
+A.eq(until_change("rpm 400", -400), "rpm 0", "a sign change stops before the reverse")
+A.eq(until_change("rpm 0", -400), "rpm -400", "the reverse writes the full target")
+A.eq(until_change("rpm -400", 90000), "rpm 0", "an opposite over-max command stops first")
+A.eq(until_change("rpm 0", 90000), "rpm " .. tostring(limit), "leaving zero writes the clamped maximum")
 
 runtime = reload()
 local fresh_high = recorder()
@@ -117,14 +114,6 @@ if #moving.calls >= 128 then
 end
 if #moving.calls < 2 then
   error("a moving elevation target never changed the controller")
-end
-local last_written = nil
-for i = 1, #moving.calls do
-  local number = tonumber(string.match(moving.calls[i], "%-?%d+"))
-  if last_written ~= nil and number ~= 0 and math.abs(number - last_written) >= 100 then
-    error("consecutive elevation integers differ by " .. tostring(number - last_written))
-  end
-  last_written = number
 end
 print("elevation writes " .. tostring(#moving.calls))
 
