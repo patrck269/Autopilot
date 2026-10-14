@@ -41,8 +41,11 @@ function M.x_rpm(current_rpm, current_speed, target_speed, step, hold)
   return config.clamp_rpm(next_rpm)
 end
 
+-- Heading errors smaller than 1/30 of a degree are left alone.
+local BEARING_DEADZONE = math.rad(1 / 30)
+
 function M.bearing_rpm(error_rad, mass)
-  if error_rad == nil or math.abs(error_rad) < 0.02 then
+  if error_rad == nil or math.abs(error_rad) < BEARING_DEADZONE then
     return 0
   end
   local portion = math.abs(error_rad) / math.pi
@@ -57,7 +60,7 @@ local YAW_RPM_DEADZONE = 0.05
 
 function M.yaw_rpm(error_rad, yaw_rate, mass, damping)
   local portion = 0
-  if math.abs(error_rad) >= 0.02 then portion = error_rad / math.pi end
+  if math.abs(error_rad) >= BEARING_DEADZONE then portion = error_rad / math.pi end
   portion = math.max(-1, math.min(1, portion - (yaw_rate or 0) * (damping or 2)))
   if portion == 0 then
     return 0

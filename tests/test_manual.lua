@@ -41,3 +41,15 @@ local full_vert = manual.rcs_rpm(1, 200000000)
 if full_vert < 1000 or full_vert > config.default().max_rpm then
   error("full vertical rcs rpm out of range: " .. tostring(full_vert))
 end
+
+local thirtieth = math.rad(1 / 30)
+local at_limit = manual.yaw_rpm(thirtieth, 0, 200000000, 0)
+if at_limit == 0 then
+  error("a 1/30 degree heading error was inside the bearing deadzone")
+end
+local inside = manual.yaw_rpm(thirtieth * 0.5, 0, 200000000, 0)
+A.eq(inside, 0, "heading error under 1/30 degree stays in the deadzone")
+local bearing_at_limit = manual.bearing_rpm(thirtieth, 200000000)
+if bearing_at_limit == 0 then
+  error("bearing rpm ignored a 1/30 degree error")
+end
