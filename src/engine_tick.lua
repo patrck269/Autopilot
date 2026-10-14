@@ -821,6 +821,7 @@ local function apply_command(state, command, current_rpm)
     state.ramp_speed = speed.cap(state.ramp_speed or 0, 35)
     state.target_speed = target
     state.ramp_rate = speed.ramp_rate(state.ramp_speed, target)
+    state.speed_bias = 0
     return
   end
   if command.type == "set_waypoint" or command.type == "return_to_user" or command.type == "set_profile" then
@@ -1380,14 +1381,47 @@ function M.tick(state, input)
     elseif (forward_speed or 0) <= -35 and feed < 0 then
       feed = 0
     end
+    local limit = cfg.forward_accel or (50 / 15)
+    local response = cfg.velocity_response or 1
+    local err = vx - (forward_speed or 0)
+    local dt = ship.dt or 0.05
+    if dt < 0.001 then
+      dt = 0.001
+    end
+    -- A constant push the thrust map does not credit otherwise sits in the
+    -- speed error. Hold that cancelling acceleration at the target instead.
+    state.speed_bias = state.speed_bias or 0
+    if feed == 0 then
+      local unclamped = err / math.max(response, dt) + state.speed_bias
+      local saturated = math.abs(unclamped) >= limit and err * unclamped > 0
+      local through_cap = ((forward_speed or 0) >= 35 and err > 0)
+          or ((forward_speed or 0) <= -35 and err < 0)
+      if not saturated and not through_cap then
+        state.speed_bias = state.speed_bias + err * dt
+      end
+      if state.speed_bias > limit then
+        state.speed_bias = limit
+      elseif state.speed_bias < -limit then
+        state.speed_bias = -limit
+      end
+    end
     local accel = control.accel(
       vx,
       forward_speed,
       ship.dt,
-      cfg.forward_accel or (50 / 15),
-      cfg.velocity_response or 1,
-      feed
+      limit,
+      response,
+      feed + state.speed_bias
     )
+    -- The trim must not accelerate the hull through the speed cap.
+    local cap_room = (35 - (forward_speed or 0)) / dt
+    if accel > cap_room then
+      accel = cap_room
+    end
+    cap_room = (-35 - (forward_speed or 0)) / dt
+    if accel < cap_room then
+      accel = cap_room
+    end
     local eq = prop_equilibrium()
     -- Positive RPM on the rear thrusters pushes the ship forward.
     rsc17 = control.prop_rpm(accel, eq) * pid.thrust_scale(ship.y)

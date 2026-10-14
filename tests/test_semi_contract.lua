@@ -135,7 +135,7 @@ local function flown_accel(rpm)
   return magnitude
 end
 
-local function fly_speed(requested, start_vx)
+local function fly_speed(requested, start_vx, opposition)
   local state = fresh()
   local ship = ship_at(62, start_vx)
   local peak = math.abs(start_vx)
@@ -148,10 +148,16 @@ local function fly_speed(requested, start_vx)
   end
   A.eq(state.target_speed, capped, "speed target is capped at 35")
   A.eq(state.ramp_rate, (capped - start_vx) / 15, "speed ramp rate")
+  local drag = 0
+  if capped < 0 then
+    drag = -(opposition or 0)
+  else
+    drag = opposition or 0
+  end
   for _ = 1, 800 do
     local outputs
     state, outputs = step(state, nil, ship)
-    ship.vx = ship.vx + flown_accel(outputs.rsc.rsc17) * ship.dt
+    ship.vx = ship.vx + (flown_accel(outputs.rsc.rsc17) - drag) * ship.dt
     ship.forward_speed = ship.vx
     if math.abs(ship.vx) > peak then
       peak = math.abs(ship.vx)
@@ -160,7 +166,25 @@ local function fly_speed(requested, start_vx)
       error("flown speed exceeded 35 for target " .. tostring(requested) .. ", vx " .. tostring(ship.vx))
     end
   end
-  return state, peak
+  return state, peak, ship.vx
+end
+
+local function assert_settled(label, requested, opposition)
+  local state, _, vx = fly_speed(requested, 0, opposition)
+  local capped = requested
+  if capped > 35 then
+    capped = 35
+  elseif capped < -35 then
+    capped = -35
+  end
+  A.eq(state.target_speed, capped, label .. " keeps the commanded target")
+  if math.abs(vx - capped) > 0.5 then
+    error(label .. " settled at " .. tostring(vx) .. " instead of " .. tostring(capped))
+  end
+  print(string.format(
+    "speed %s settled at %.3f target %.3f opposition %s",
+    label, vx, capped, tostring(opposition or 0)
+  ))
 end
 
 local current = 0
@@ -182,6 +206,13 @@ print(string.format(
   "flown speed for targets 80, -80, and 36 peaked at %s %s %s and stayed within 35",
   tostring(peak_fast), tostring(peak_back), tostring(peak_near)
 ))
+
+assert_settled("forward", 20, 0)
+assert_settled("reverse", -12, 0)
+assert_settled("forward drag", 20, 2)
+assert_settled("reverse drag", -12, 2)
+assert_settled("cap drag", 80, 2)
+assert_settled("reverse cap drag", -80, 2)
 
 local climbed = step(fresh(), { type = "set_altitude", y = 250 })
 A.eq(climbed.altitude, 250, "altitude setpoint")
