@@ -5,6 +5,7 @@ local protocol = require("protocol")
 local config = require("config")
 local monitors = require("monitors")
 local speed = require("speed")
+local pid = require("pid")
 
 local cfg = config.default()
 
@@ -213,6 +214,18 @@ assert_settled("forward drag", 20, 2)
 assert_settled("reverse drag", -12, 2)
 assert_settled("cap drag", 80, 2)
 assert_settled("reverse cap drag", -80, 2)
+
+local function thruster_cap(speed, expect)
+  local hot = fresh()
+  hot.pid_gains = pid.calibrate(32769, 0.05)
+  local ship = ship_at(62, 0)
+  local state = step(hot, { type = "set_speed", speed = speed }, ship)
+  local outputs
+  state, outputs = step(state, nil, ship)
+  A.eq(outputs.rsc.rsc17, expect, "rear thrusters stay within 1500 at " .. tostring(speed))
+end
+thruster_cap(35, 1500)
+thruster_cap(-35, -1500)
 
 local climbed = step(fresh(), { type = "set_altitude", y = 250 })
 A.eq(climbed.altitude, 250, "altitude setpoint")

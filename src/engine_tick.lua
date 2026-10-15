@@ -587,6 +587,7 @@ end
 local SIDE_NAMES = { "rsc13", "rsc14", "rsc15", "rsc12" }
 local RCS_RPM_CAP = 2500
 local ELEVATION_RPM_CAP = 2750
+local THRUSTER_RPM_CAP = 1500
 
 -- hold_stop sizes rpm for one propeller. Four signed props share that force.
 local function share_rpm(rpm, props)
@@ -1497,6 +1498,7 @@ function M.tick(state, input)
   apply_side_signs(outputs, cfg)
   cap_side_rpm(outputs)
   outputs.rsc.rsc16 = cap_rpm(outputs.rsc.rsc16, ELEVATION_RPM_CAP)
+  outputs.rsc.rsc17 = cap_rpm(outputs.rsc.rsc17, THRUSTER_RPM_CAP)
   -- A failed corner is handled by cutoffs. Reversing the surviving props
   -- would turn the remaining upward lift into additional downward force.
   outputs.relays.relay6 = elev_reverse == true
