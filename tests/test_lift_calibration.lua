@@ -161,6 +161,6 @@ end
 if strong.pid_gains.equilibrium >= 300 then
   error("stronger elevation props left the hover RPM at " .. tostring(strong.pid_gains.equilibrium))
 end
-A.eq(strong_out.rsc.rsc16 <= 3000, true, "elevation stays within 3000")
+A.eq(strong_out.rsc.rsc16 <= 2750, true, "elevation stays within 2750")
 
 os.clock = old_clock

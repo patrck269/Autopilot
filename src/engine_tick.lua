@@ -586,7 +586,7 @@ end
 
 local SIDE_NAMES = { "rsc13", "rsc14", "rsc15", "rsc12" }
 local RCS_RPM_CAP = 2500
-local ELEVATION_RPM_CAP = 3000
+local ELEVATION_RPM_CAP = 2750
 
 -- hold_stop sizes rpm for one propeller. Four signed props share that force.
 local function share_rpm(rpm, props)
