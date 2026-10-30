@@ -4,10 +4,19 @@ package.path = fs.combine(dir, "src") .. "/?.lua;" .. package.path
 
 local simple = require("simple_ship")
 
-local elevation = peripheral.wrap(simple.peripheral_name)
+local elevation = peripheral.wrap(simple.elevation_name)
 if elevation == nil then
-  error("missing " .. simple.peripheral_name)
+  error("missing " .. simple.elevation_name)
 end
+local thrusters = peripheral.wrap(simple.thruster_name)
+if thrusters == nil then
+  error("missing " .. simple.thruster_name)
+end
+
+local devices = {
+  elevation = elevation,
+  thrusters = thrusters,
+}
 
 rednet.open("back")
 
@@ -17,20 +26,27 @@ local function show()
   simple.draw(ui, term)
 end
 
+local function accept(axis, rpm)
+  ui[axis] = rpm
+  ui.draft = ""
+  simple.apply(axis, rpm, devices[axis])
+end
+
 show()
 
 while true do
   local event, a, b = os.pullEvent()
-  local rpm = nil
-  if event == "rednet_message" and type(b) == "table" and b.type == "set_elevation" and type(b.rpm) == "number" then
-    rpm = b.rpm
-    ui.rpm = rpm
-    ui.draft = ""
+  if event == "rednet_message" and type(b) == "table" and type(b.rpm) == "number" then
+    if b.type == "set_elevation" then
+      accept("elevation", b.rpm)
+    elseif b.type == "set_thrusters" then
+      accept("thrusters", b.rpm)
+    end
   else
-    rpm = simple.on_event(ui, event, a, b)
-  end
-  if rpm ~= nil then
-    simple.apply(rpm, elevation)
+    local rpm = simple.on_event(ui, event, a, b)
+    if rpm ~= nil then
+      simple.apply(ui.selected, rpm, devices[ui.selected])
+    end
   end
   show()
 end
